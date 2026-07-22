@@ -1,0 +1,13 @@
+# Архивы
+*.zip
+*.7z
+*.rar
+
+# Системный мусор
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Временные файлы
+*.bak
+*.tmp
