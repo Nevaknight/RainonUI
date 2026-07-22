@@ -1,0 +1,307 @@
+-- =========================================================================
+-- RainonUI / Core: база данных, события, общие помощники.
+-- Адаптировано под WoW Midnight 12.0.x (Interface 120007).
+-- =========================================================================
+
+local ADDON_NAME, ns = ...
+
+ns.ADDON_NAME = ADDON_NAME
+
+-- -------------------------------------------------------------------------
+-- Значения по умолчанию
+-- -------------------------------------------------------------------------
+ns.defaults = {
+    hide = {
+        -- Рамка игрока
+        holypower = false, essence = false, runeframe = false,
+        warlockpower = false, stagger = false, monkbar = false,
+        rogcombo = false, drucombo = false, arcanemage = false,
+        combattext = true, totempanel = true, castbar = false,
+        -- Индикатор личного ресурса
+        holypowerbar = false, essencebar = false, runeframebar = false,
+        warlockpowerbar = false, monkpersonalbar = false,
+        rogcombobar = false, drucombobar = false, arcanemagebar = false,
+        -- Разное
+        targetspellbar = false, blizzdbm = true, talkinghead = false,
+        actionbutton = false, zonebutton = false, expbar = false,
+        bags = false, raidmanager = false, expansionbutton = false,
+        durability = false, vehicle = false,
+        -- Особые
+        event = true, dailyquest = true, lootHide = true, ZoneHide = true,
+    },
+    tools = {
+        -- Стикеры
+        breaktimer = true, allready = true,
+        feast = true, food = true, racechange = true,
+        -- Тексты оповещений
+        repair = true, cauldron = true, mail = true, healthstones = true,
+        magetable = true, summon = true, mageeat = true,
+        -- Напоминания
+        consumables = true, delvemap = true,
+        -- Оповещения
+        leader = true, readybar = true, combatdrop = true,
+        -- Иконки
+        invispotion = true, engcloak = true,
+        -- Профессии
+        prof_phial = true, prof_essence = true,
+        -- Валюта
+        curr_moxie = true,
+        -- Прочее
+        combattimer = true, bonusroll = true, keystone = true,
+    },
+    positions = {
+        combattimer  = { x = 466, y = -226, scale = 1 },
+        prof_phial   = { x = -50, y = 120,  scale = 1 },
+        prof_essence = { x = 50,  y = 120,  scale = 1 },
+        curr_moxie   = { x = 0,   y = 0,    scale = 1 },
+        readybar     = { x = 0,   y = -180, scale = 1 },
+        bonusroll    = { x = 0,   y = -240, scale = 1 },
+        keystone     = { x = 0,   y = 40,   scale = 1 },
+    },
+}
+
+ns.db = nil -- ссылки появятся после ADDON_LOADED
+
+local function CopyDefaults(src, dst)
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            if type(dst[k]) ~= "table" then dst[k] = {} end
+            CopyDefaults(v, dst[k])
+        elseif dst[k] == nil then
+            dst[k] = v
+        end
+    end
+end
+
+function ns.InitDB()
+    RainonUIDB = RainonUIDB or {}
+    local db = RainonUIDB
+    -- миграция настроек со старого имени аддона (Rainon Scripts):
+    -- если старая папка RainonScripts ещё установлена, забираем данные
+    local oldDB = _G.RainonScriptsDB
+    if db.hide == nil and type(oldDB) == "table" and oldDB.hide then
+        for _, section in ipairs({ "hide", "tools", "positions" }) do
+            if type(oldDB[section]) == "table" then
+                db[section] = {}
+                for k, v in pairs(oldDB[section]) do
+                    if type(v) == "table" then
+                        db[section][k] = { x = v.x, y = v.y, scale = v.scale }
+                    else
+                        db[section][k] = v
+                    end
+                end
+            end
+        end
+    end
+    -- миграция с версии 1.x (плоские ключи)
+    if db.hide == nil and db.totempanel ~= nil then
+        local old = {}
+        for k, v in pairs(db) do old[k] = v; db[k] = nil end
+        db.hide = old
+    end
+    CopyDefaults(ns.defaults, db)
+    ns.db = db
+end
+
+-- -------------------------------------------------------------------------
+-- Центральная шина событий
+-- -------------------------------------------------------------------------
+local eventFrame = CreateFrame("Frame")
+local handlers = {}   -- [event] = { fn, fn, ... }
+
+function ns.RegisterEvent(event, fn)
+    if not handlers[event] then
+        handlers[event] = {}
+        eventFrame:RegisterEvent(event)
+    end
+    table.insert(handlers[event], fn)
+end
+
+eventFrame:SetScript("OnEvent", function(_, event, ...)
+    local list = handlers[event]
+    if not list then return end
+    for i = 1, #list do
+        -- pcall: в Midnight часть аргументов событий может приходить как
+        -- Secret Values — любая попытка сравнения из аддона даёт ошибку.
+        -- Ловим её тихо, чтобы не сыпать луа-ошибками в бою.
+        local ok, err = pcall(list[i], ...)
+        if not ok and ns.debug then
+            print("|cFFFF3333RainonUI:|r", event, err)
+        end
+    end
+end)
+
+-- Внутренние сообщения (аналог WeakAuras.ScanEvents)
+local msgHandlers = {}
+function ns.RegisterMessage(msg, fn)
+    msgHandlers[msg] = msgHandlers[msg] or {}
+    table.insert(msgHandlers[msg], fn)
+end
+function ns.SendMessage(msg, ...)
+    local list = msgHandlers[msg]
+    if not list then return end
+    for i = 1, #list do pcall(list[i], ...) end
+end
+
+-- -------------------------------------------------------------------------
+-- Помощники
+-- -------------------------------------------------------------------------
+ns.FONT = STANDARD_TEXT_FONT
+
+function ns.C(hex, text) return "|cFF" .. hex .. text .. "|r" end
+
+function ns.Print(text)
+    print("|cFF33937FRainonUI:|r " .. text)
+end
+
+-- Проигрывание звука из файла (кастомная медиатека пользователя).
+-- Если файла нет — тихо пропускаем.
+function ns.PlayFile(path)
+    if path and path ~= "" then
+        pcall(PlaySoundFile, path, "Master")
+    end
+end
+
+-- Сообщение в чат группы. В Midnight аддонам запрещено писать в чат
+-- в инстансах — там выводим только себе на экран.
+function ns.Announce(msg)
+    local inInstance = IsInInstance()
+    if not inInstance and IsInGroup() then
+        local channel = IsInRaid() and "RAID" or "PARTY"
+        pcall(SendChatMessage, msg, channel)
+    else
+        ns.Print(msg)
+    end
+end
+
+-- Установка иконки с фолбэком (кастомные tga могут отсутствовать)
+function ns.SetIcon(texture, icon)
+    texture:SetTexture(134400) -- знак вопроса — фолбэк
+    if icon then texture:SetTexture(icon) end
+end
+
+function ns.FormatSeconds(sec)
+    if sec >= 60 then
+        return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
+    end
+    return string.format("%d", math.ceil(sec))
+end
+
+-- Совместимость API (12.0: многое переехало в C_* неймспейсы)
+ns.GetItemCount = function(itemID)
+    if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(itemID) or 0 end
+    if GetItemCount then return GetItemCount(itemID) or 0 end
+    return 0
+end
+
+ns.GetSpellCooldown = function(spellID)
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local info = C_Spell.GetSpellCooldown(spellID)
+        if info then return info.startTime, info.duration, info.isEnabled end
+        return nil
+    end
+    if GetSpellCooldown then return GetSpellCooldown(spellID) end
+    return nil
+end
+
+ns.GetSpellTexture = function(spellID)
+    if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(spellID) end
+    if GetSpellTexture then return GetSpellTexture(spellID) end
+    return nil
+end
+
+-- Аура игрока по spellID → таблица данных или nil
+ns.GetPlayerAura = function(spellID)
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        return C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    end
+    return nil
+end
+
+-- Поиск ауры по списку spellID на юните (медленный путь, с защитой)
+ns.UnitHasAnyAura = function(unit, idSet)
+    local found
+    local ok = pcall(function()
+        if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return end
+        for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+            local i = 1
+            while true do
+                local data = C_UnitAuras.GetAuraDataByIndex(unit, i, filter)
+                if not data then break end
+                if idSet[data.spellId] then found = data; return end
+                i = i + 1
+            end
+        end
+    end)
+    if ok then return found end
+    return nil
+end
+
+-- Перебор юнитов группы (включая игрока)
+function ns.IterateGroup()
+    local n = GetNumGroupMembers()
+    local isRaid = IsInRaid()
+    local i = 0
+    return function()
+        i = i + 1
+        if i == 1 and not isRaid then return "player" end
+        if isRaid then
+            if i <= n then return "raid" .. i end
+        else
+            if i <= n then return "party" .. (i - 1) end
+        end
+        return nil
+    end
+end
+
+-- -------------------------------------------------------------------------
+-- Слежение за кастами группы (замена CLEU-триггеров WeakAuras:
+-- COMBAT_LOG_EVENT в Midnight аддонам недоступен, используем
+-- UNIT_SPELLCAST_SUCCEEDED по юнитам группы)
+-- -------------------------------------------------------------------------
+local castWatchers = {}  -- [spellID] = { fn, ... }
+
+function ns.WatchGroupCast(spellIDs, fn)
+    for _, id in ipairs(spellIDs) do
+        id = tonumber(id)
+        if id then
+            castWatchers[id] = castWatchers[id] or {}
+            table.insert(castWatchers[id], fn)
+        end
+    end
+end
+
+local function IsGroupUnit(unit)
+    if unit == "player" or unit == "pet" then return true end
+    local prefix = string.sub(unit, 1, 4)
+    return prefix == "part" or prefix == "raid"
+end
+
+ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
+    if not unit or not IsGroupUnit(unit) then return end
+    local list = castWatchers[spellID]
+    if not list then return end
+    for i = 1, #list do pcall(list[i], unit, spellID) end
+end)
+
+-- -------------------------------------------------------------------------
+-- Старт
+-- -------------------------------------------------------------------------
+ns.RegisterEvent("ADDON_LOADED", function(name)
+    if name == ADDON_NAME then
+        ns.InitDB()
+        ns.SendMessage("RAINON_DB_READY")
+    elseif ns.db then
+        -- Ленивые Blizzard-аддоны — повторно применяем скрытие
+        ns.SendMessage("RAINON_REAPPLY")
+    end
+end)
+
+local greeted = false
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    ns.SendMessage("RAINON_REAPPLY")
+    if not greeted then
+        greeted = true
+        ns.Print("загружен. Настройки: " .. ns.C("FFFF00", "/rainon"))
+    end
+end)
