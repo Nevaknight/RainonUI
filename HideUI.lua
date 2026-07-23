@@ -54,6 +54,8 @@ local FRAMES = {
     event           = { "EventToastManagerFrame" },
     dailyquest      = { "ObjectiveTrackerTopBannerFrame" },
     ZoneHide        = { "ZoneTextFrame", "SubZoneTextFrame" },
+    -- Баннер «X повержен / Подземелье пройдено» (BossBanner, BossBannerToast.xml)
+    bossbanner      = { "BossBanner" },
 }
 
 -- Классовая часть нового Personal Resource Display: скрываем контейнер
@@ -114,6 +116,13 @@ local SPECIAL = {
     lootHide = function()
         if AlertFrame then
             AlertFrame:UnregisterEvent("SHOW_LOOT_TOAST")
+        end
+    end,
+    bossbanner = function()
+        -- Баннер боссов/подземелий срабатывает по событиям — глушим их,
+        -- а сам фрейм дополнительно прячем через KeepHidden (FRAMES).
+        if _G.BossBanner then
+            _G.BossBanner:UnregisterAllEvents()
         end
     end,
 }

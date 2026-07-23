@@ -28,6 +28,7 @@ ns.defaults = {
         durability = false, vehicle = false,
         -- Особые
         event = true, dailyquest = true, lootHide = true, ZoneHide = true,
+        bossbanner = true,
     },
     tools = {
         -- Стикеры
@@ -44,6 +45,7 @@ ns.defaults = {
         invispotion = true, engcloak = true,
         -- Профессии
         prof_phial = true, prof_essence = true,
+        professions_enabled = true, -- мастер-выключатель всего по профессиям
         -- Валюта
         curr_moxie = true,
         -- Прочее
@@ -57,6 +59,24 @@ ns.defaults = {
         readybar     = { x = 0,   y = -180, scale = 1 },
         bonusroll    = { x = 0,   y = -240, scale = 1 },
         keystone     = { x = 0,   y = 40,   scale = 1 },
+    },
+    -- Мультиперсонажный ростер для окна знаний/зарядов (аккаунтный).
+    -- [GUID] = { name, realm, classFile, lastUpdate, profs = {...},
+    --            abundant = bool, charges = { [recipeID] = {cur, max} } }
+    roster = {},
+    -- Настройки окна знаний/зарядов
+    knowledge = {
+        locked = false,
+        scale = 1.0,
+        rows = 20,          -- строк в окне (10 или 20)
+        sort = "name",      -- "name" или "conc"
+        autoOpen = false,   -- открывать/закрывать вместе с окном профессии
+        minimapAngle = 205,
+        hideMinimap = false,
+        columns = {
+            prof1 = true, prof2 = true, abundant = true,
+            weekly = true, treatise = true, herbs = true, wondrous = true,
+        },
     },
 }
 
@@ -101,6 +121,12 @@ function ns.InitDB()
     end
     CopyDefaults(ns.defaults, db)
     ns.db = db
+end
+
+-- Мастер-выключатель всего, что связано с профессиями (баффы крафта,
+-- кнопка миникарты, авто-возможности окна знаний/зарядов).
+function ns.ProfEnabled()
+    return not (ns.db and ns.db.tools and ns.db.tools.professions_enabled == false)
 end
 
 -- -------------------------------------------------------------------------

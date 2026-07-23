@@ -927,7 +927,7 @@ local function DetectEnchanting()
 end
 
 local function UpdateProfBuffs()
-    if not profOpen then
+    if not profOpen or not ns.ProfEnabled() then
         phialIcon:Deactivate()
         essenceIcon:Deactivate()
         return
@@ -990,20 +990,126 @@ ns.Tools = ns.Tools or {}
 ns.Tools.UpdateProfBuffs = UpdateProfBuffs
 
 -- =========================================================================
+-- НЕДЕЛЬНЫЕ ЗНАНИЯ: недельный квест профессии + Талассийский трактат.
+-- Оба дают очки знаний и обновляются раз в неделю. Отслеживаем по флагу
+-- выполнения недельных/скрытых квестов (C_QuestLog.IsQuestFlaggedCompleted):
+--   * недельный квест профессии в Луносвете (у собирателей — ротация из
+--     нескольких, активен один; засчитываем выполнение любого из набора);
+--   * трактат — при изучении срабатывает заклинание «Studying», которое
+--     помечает скрытый недельный квест профессии (treatiseQuest).
+-- Ключ таблицы — базовый ID линии профессии (7-й возврат GetProfessionInfo).
+-- Все ID выверены по Wowhead для Midnight (12.0).
+-- =========================================================================
+local WEEKLY_KNOWLEDGE = {
+    [171] = { treatiseQuest = 95127, weekly = { 93690 } },  -- Алхимия
+    [164] = { treatiseQuest = 95128, weekly = { 93691 } },  -- Кузнечное дело
+    [333] = { treatiseQuest = 95129, weekly = { 93697 } },  -- Наложение чар
+    [202] = { treatiseQuest = 95138, weekly = { 93692 } },  -- Инженерное дело
+    [773] = { treatiseQuest = 95131, weekly = { 93693 } },  -- Начертание
+    [755] = { treatiseQuest = 95133, weekly = { 93694 } },  -- Ювелирное дело
+    [165] = { treatiseQuest = 95134, weekly = { 93695 } },  -- Кожевничество
+    [197] = { treatiseQuest = 95137, weekly = { 93696 } },  -- Портняжное дело
+    [182] = { treatiseQuest = 95130,                        -- Травничество
+              weekly = { 93700, 93701, 93702, 93703, 93704 } },
+    [186] = { treatiseQuest = 95135,                        -- Горное дело
+              weekly = { 93705, 93706, 93707, 93708, 93709 } },
+    [393] = { treatiseQuest = 95136,                        -- Снятие шкур
+              weekly = { 93710, 93711, 93712, 93713, 93714 } },
+}
+
+-- Общие недельные объективы (важны для всех профессий, не привязаны к одной).
+-- «Abundant Offerings» (89507) — недельный мета-квест Midnight; на первом
+-- принятии есть скрытый флаг 94952 — учитываем оба (готово, если любой).
+-- Название берём живьём из игры (локализовано), fallback — англ.
+local GLOBAL_KNOWLEDGE = {
+    { fallback = "Abundant Offerings",
+      atlas = "questlog-questtypeicon-Recurring",
+      quests = { 89507, 94952 } },
+}
+
+local function IsQuestDone(id)
+    if not id then return false end
+    if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+        return C_QuestLog.IsQuestFlaggedCompleted(id) and true or false
+    end
+    if IsQuestFlaggedCompleted then
+        return IsQuestFlaggedCompleted(id) and true or false
+    end
+    return false
+end
+
+-- Список изученных игроком первичных профессий с недельным статусом:
+--   { { name = "Алхимия", weeklyDone = bool, treatiseDone = bool }, ... }
+-- Профессии без данных (кулинария, рыбалка, археология) не попадают.
+function ns.Tools.GetWeeklyKnowledge()
+    local out = {}
+    if not GetProfessions or not GetProfessionInfo then return out end
+    local slots = { GetProfessions() } -- prof1, prof2, археология, рыбалка, кулинария
+    for i = 1, 2 do
+        local idx = slots[i]
+        if idx then
+            local name, icon, _, _, _, _, skillLine = GetProfessionInfo(idx)
+            local data = skillLine and WEEKLY_KNOWLEDGE[skillLine]
+            if data then
+                local weeklyDone = false
+                for _, q in ipairs(data.weekly) do
+                    if IsQuestDone(q) then weeklyDone = true; break end
+                end
+                out[#out + 1] = {
+                    name = name or ("#" .. tostring(skillLine)),
+                    icon = icon,
+                    base = skillLine,
+                    weeklyDone = weeklyDone,
+                    treatiseDone = IsQuestDone(data.treatiseQuest),
+                }
+            end
+        end
+    end
+    return out
+end
+
+-- Общие объективы (Abundant Offerings и т.п.) со статусом выполнения:
+--   { { name = "...", done = bool, atlas = "..." }, ... }
+function ns.Tools.GetGlobalKnowledge()
+    local out = {}
+    for _, g in ipairs(GLOBAL_KNOWLEDGE) do
+        local done = false
+        for _, q in ipairs(g.quests) do
+            if IsQuestDone(q) then done = true; break end
+        end
+        local title
+        if C_QuestLog and C_QuestLog.GetTitleForQuestID then
+            title = C_QuestLog.GetTitleForQuestID(g.quests[1])
+        end
+        out[#out + 1] = {
+            name = (title and title ~= "" and title) or g.fallback,
+            done = done,
+            atlas = g.atlas,
+        }
+    end
+    return out
+end
+
+-- =========================================================================
 -- ВАЛЮТА РЕМЕСЛА: «Купи сумку!»
 -- Если валюты Moxie больше 600 — глоу-иконка (по умолчанию в центре
 -- экрана) с текстом «Купи сумку!». Двигается и масштабируется в режиме
 -- редактирования, как остальные боксы Rainon UI.
 -- =========================================================================
 local MOXIE_CURRENCIES = {
-    3256, -- Пыл искусного алхимика (Алхимия)
-    3258, -- Пыл искусного зачаровывателя (Наложение чар)
-    3259, -- Пыл искусного инженера (Инженерное дело)
-    3261, -- Пыл искусного начертателя (Начертание)
-    3262, -- Пыл искусного ювелира (Ювелирное дело)
-    -- сюда можно дописать ID валют других профессий
+    3256, -- Алхимия
+    3257, -- Кузнечное дело
+    3258, -- Наложение чар
+    3259, -- Инженерное дело
+    3260, -- Травничество
+    3261, -- Начертание
+    3262, -- Ювелирное дело
+    3263, -- Кожевничество
+    3264, -- Горное дело
+    3265, -- Снятие шкур
+    3266, -- Портняжное дело
 }
-local MOXIE_CAP = 600
+local MOXIE_CAP = 600 -- сумку можно купить за 600, поэтому порог «>= 600»
 
 local bagIcon = CreateIconDisplay({ size = 48, x = 0, y = 0,
                                     icon = "Interface\\Icons\\INV_Misc_Bag_08",
@@ -1026,7 +1132,7 @@ local function UpdateMoxie()
     if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
         for _, id in ipairs(MOXIE_CURRENCIES) do
             local ok, info = pcall(C_CurrencyInfo.GetCurrencyInfo, id)
-            if ok and info and (info.quantity or 0) > MOXIE_CAP then
+            if ok and info and (info.quantity or 0) >= MOXIE_CAP then
                 found = info
                 break
             end
@@ -1122,6 +1228,12 @@ registry.keystone = {
 -- =========================================================================
 ns.Tools = ns.Tools or {}
 function ns.Tools.OnToggle(key, state)
+    -- Мастер-выключатель профессий: применяем сразу к баффам и миникарте.
+    if key == "professions_enabled" then
+        UpdateProfBuffs()
+        if ns.Roster and ns.Roster.UpdateMinimap then ns.Roster.UpdateMinimap() end
+        return
+    end
     if state then
         if key == "consumables" then UpdateConsumables() end
         if key == "delvemap" then UpdateDelveMap() end

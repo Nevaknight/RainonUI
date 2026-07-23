@@ -78,6 +78,8 @@ local HIDE_OPTIONS = {
       desc = "Персональный список добычи по центру экрана." },
     { key = "ZoneHide",   name = "Название зоны",
       desc = "Текст с названием зоны по центру экрана." },
+    { key = "bossbanner", name = "Баннер боссов",
+      desc = "Баннер «X повержен» и «Подземелье пройдено» (BossBanner). Скрытие требует /reload после включения." },
 }
 
 local TOOLS_OPTIONS = {
@@ -129,6 +131,9 @@ local TOOLS_OPTIONS = {
 }
 
 local PROF_OPTIONS = {
+    { key = "professions_enabled", name = "Профессии — включить всё",
+      desc = "Главный выключатель всего по профессиям: напоминания о баффах" ..
+             " крафта, кнопка миникарты и окно недельных знаний/зарядов." },
     { header = "Баффы крафта" },
     { key = "prof_phial", name = "Флакон Харанир",
       desc = "При открытом окне любой профессии проверяет бафф «Haranir Phial of Ingenuity» (spellID 1239755). Нет баффа — иконка с подсветкой." },
@@ -139,13 +144,19 @@ local PROF_OPTIONS = {
 local CURR_OPTIONS = {
     { header = "Валюта ремесла" },
     { key = "curr_moxie", name = "Купи сумку!",
-      desc = "Если «Пыла искусного мастера» больше 600 — иконка с подсветкой и текстом «Купи сумку!». Двигается и масштабируется в режиме редактирования." },
-    { text = "Учитываются профессии:\n"
+      desc = "Если «Пыла искусного мастера» 600 и больше — иконка с подсветкой и текстом «Купи сумку!» (сумка стоит 600). Двигается и масштабируется в режиме редактирования." },
+    { text = "Учитываются все профессии:\n"
         .. "• Алхимия — Пыл искусного алхимика\n"
+        .. "• Кузнечное дело — Пыл искусного кузнеца\n"
         .. "• Наложение чар — Пыл искусного зачаровывателя\n"
         .. "• Инженерное дело — Пыл искусного инженера\n"
+        .. "• Травничество — Пыл искусного травника\n"
         .. "• Начертание — Пыл искусного начертателя\n"
-        .. "• Ювелирное дело — Пыл искусного ювелира" },
+        .. "• Ювелирное дело — Пыл искусного ювелира\n"
+        .. "• Кожевничество — Пыл искусного кожевника\n"
+        .. "• Горное дело — Пыл искусного горняка\n"
+        .. "• Снятие шкур — Пыл искусного скорняка\n"
+        .. "• Портняжное дело — Пыл искусного портного" },
 }
 
 -- -------------------------------------------------------------------------
@@ -286,6 +297,28 @@ local function CreateOptionsWindow()
         onToolToggle)
     profPanel:SetPoint("TOPLEFT")
 
+    -- Кнопка открытия отдельного окна «Недельные знания» (Knowledge.lua).
+    do
+        local base = profPanel:GetHeight()
+        local knowBtn = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
+        knowBtn:SetSize(230, 26)
+        knowBtn:SetPoint("TOPLEFT", 10, -base - 6)
+        knowBtn:SetText("Недельные знания…")
+        knowBtn:SetScript("OnClick", function()
+            if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
+        end)
+        knowBtn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Недельные знания", 1, 1, 1)
+            GameTooltip:AddLine("Открывает отдельное окно: недельный квест профессии" ..
+                " и трактат по каждой профессии. Команда " .. C("FFFF00", "/rsk") .. ".",
+                nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        knowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        profPanel:SetHeight(base + 40)
+    end
+
     -- Панель «Валюта»
     local currPanel = BuildChecklist(container,
         CURR_OPTIONS,
@@ -345,8 +378,8 @@ local function CreateOptionsWindow()
           intro = "Игровые инструменты: стикеры сбора рейда, напоминания и оповещения." ..
               " Включение и выключение действуют сразу, без перезагрузки." },
         { panel = profPanel,
-          intro = "Профессии: проверка баффов крафта при открытом окне профессии." ..
-              " Иконки можно двигать в режиме редактирования Blizzard." },
+          intro = "Профессии: баффы крафта при открытом окне профессии." ..
+              " Кнопка ниже открывает окно недельных знаний (квест + трактат)." },
         { panel = currPanel,
           intro = "Валюта ремесла: напоминание потратить излишек Moxie." ..
               " Иконку можно двигать в режиме редактирования Blizzard." },
@@ -445,9 +478,10 @@ local function CreateOptionsWindow()
     reload.bg:SetColorTexture(0, 0, 0, 0.85)
 
     reload.Icon = reload:CreateTexture(nil, "ARTWORK")
-    reload.Icon:SetPoint("TOPLEFT", 5, -5)
-    reload.Icon:SetPoint("BOTTOMRIGHT", -5, 5)
-    reload.Icon:SetTexture("Interface\\Buttons\\UI-RefreshButton")
+    reload.Icon:SetPoint("TOPLEFT", 6, -6)
+    reload.Icon:SetPoint("BOTTOMRIGHT", -6, 6)
+    -- Современная иконка «обновить» (круговые стрелки), не пиксельная
+    reload.Icon:SetAtlas("questlog-questtypeicon-Recurring")
 
     reload.Border = reload:CreateTexture(nil, "OVERLAY")
     reload.Border:SetTexture("Interface\\Buttons\\UI-Quickslot2")

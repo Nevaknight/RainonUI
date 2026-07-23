@@ -2,11 +2,13 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.0.0
+## Version: 1.2.0
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
 ## SavedVariables: RainonUIDB
 
 Core.lua
 HideUI.lua
 Tools.lua
+Roster.lua
+Knowledge.lua
 Options.lua
