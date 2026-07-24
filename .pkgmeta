@@ -1,0 +1,17 @@
+package-as: RainonUI
+
+# Внешние библиотеки: CurseForge подтягивает их из официальных репозиториев
+# при сборке. В нашем GitHub-репозитории их файлы НЕ хранятся.
+externals:
+  Libs/LibStub:
+    url: https://repos.curseforge.com/wow/libstub/trunk
+    tag: 1.0
+  Libs/LibEditMode:
+    url: https://github.com/p3lim-wow/LibEditMode
+
+enable-nolib-creation: no
+
+ignore:
+  - README.md
+  - .gitignore
+  - check.js

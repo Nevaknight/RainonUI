@@ -89,9 +89,10 @@ end
 local CHARGE_PERIOD = 18 * 3600 -- запасной период, если max неизвестен
 -- Период заряда считаем ЖИВЬЁМ по макс. числу зарядов записи (а не по
 -- сохранённому period): так старые записи с устаревшим периодом всё равно
--- показываются правильно. 4/4 → 9ч10м, 1/1 → 18ч.
+-- показываются правильно. 4/4 → 9ч10м, 2/2 → 12ч50м, 1/1 → 18ч.
 local function PeriodForMax(maxCharges)
     if maxCharges == 4 then return 9 * 3600 + 10 * 60 end
+    if maxCharges == 2 then return 12 * 3600 + 50 * 60 end
     if maxCharges == 1 then return 18 * 3600 end
     return CHARGE_PERIOD
 end
@@ -535,8 +536,12 @@ function Knowledge:Render()
         end
     end
 
-    -- Данные: сортировка по выбранному режиму
-    local chars = ns.Roster and ns.Roster.GetAll() or {}
+    -- Данные: берём всех, но выключенных (e.hidden) в таблице не показываем
+    -- (они остаются в меню «Персонажи», чтобы можно было вернуть).
+    local chars = {}
+    for _, e in ipairs(ns.Roster and ns.Roster.GetAll() or {}) do
+        if not e.hidden then chars[#chars + 1] = e end
+    end
     table.sort(chars, sortMode == "conc" and ByConc or ByName)
     for _, r in ipairs(rowPool) do r.frame:Hide() end
 
@@ -635,6 +640,39 @@ local function OpenColumnsMenu(anchor)
                     Knowledge:Render()
                     return MenuResponse and MenuResponse.Refresh
                 end)
+        end
+    end)
+end
+
+-- Меню «Персонажи»: у каждого — подменю с галкой «Показывать» и «Удалить».
+local function OpenCharsMenu(anchor)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:CreateTitle("Персонажи")
+        local list = ns.Roster and ns.Roster.GetAll() or {}
+        if #list == 0 then
+            root:CreateButton("Нет персонажей")
+            return
+        end
+        for _, e in ipairs(list) do
+            local guid = e.guid
+            local sub = root:CreateButton(ClassColorName(e))
+            sub:CreateCheckbox("Показывать",
+                function()
+                    local re = ns.db.roster and ns.db.roster[guid]
+                    return not (re and re.hidden)
+                end,
+                function()
+                    local re = ns.db.roster and ns.db.roster[guid]
+                    if re then re.hidden = not re.hidden end
+                    Knowledge:Render()
+                    return MenuResponse and MenuResponse.Refresh
+                end)
+            sub:CreateButton("Удалить из списка", function()
+                if ns.Roster and ns.Roster.Delete then ns.Roster.Delete(guid) end
+                Knowledge:Render()
+                return MenuResponse and MenuResponse.Close
+            end)
         end
     end)
 end
@@ -750,11 +788,18 @@ local function CreateWindow()
     colsBtn:SetText("Столбцы")
     colsBtn:SetScript("OnClick", function() OpenColumnsMenu(colsBtn) end)
 
-    -- Галочка слева от «Столбцы»: открывать/скрывать окно вместе с профессией.
+    -- «Персонажи» — слева от «Столбцы»: включать/выключать и удалять персонажей.
+    local charsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    charsBtn:SetSize(84, 20)
+    charsBtn:SetPoint("RIGHT", colsBtn, "LEFT", -BTN_GAP, 0)
+    charsBtn:SetText("Персонажи")
+    charsBtn:SetScript("OnClick", function() OpenCharsMenu(charsBtn) end)
+
+    -- Галочка слева от «Персонажи»: открывать/скрывать окно вместе с профессией.
     -- Текст — слева от квадратика, чтобы не налезать на кнопки.
     local autoCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
     autoCB:SetSize(22, 22)
-    autoCB:SetPoint("RIGHT", colsBtn, "LEFT", -6, 0)
+    autoCB:SetPoint("RIGHT", charsBtn, "LEFT", -6, 0)
     autoCB.Text:ClearAllPoints()
     autoCB.Text:SetPoint("RIGHT", autoCB, "LEFT", -2, 0)
     autoCB.Text:SetFontObject("GameFontHighlightSmall")

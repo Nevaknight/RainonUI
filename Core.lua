@@ -64,6 +64,13 @@ ns.defaults = {
     -- [GUID] = { name, realm, classFile, lastUpdate, profs = {...},
     --            abundant = bool, charges = { [recipeID] = {cur, max} } }
     roster = {},
+    -- Отдельные фичи (кнопка reload, иконка паладина, окно телепорта)
+    features = {
+        reloadMenuButton = true, -- кнопка «Перезагрузить интерфейс» в ESC-меню
+        paladinWeapon = true,    -- иконка освящения оружия для паладина
+        teleportPrompt = true,   -- окно телепорта при вступлении в группу ЛФГ
+        teleportScale = 1.0,
+    },
     -- Настройки окна знаний/зарядов
     knowledge = {
         locked = false,

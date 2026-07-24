@@ -159,6 +159,79 @@ local CURR_OPTIONS = {
         .. "• Портняжное дело — Пыл искусного портного" },
 }
 
+local FEATURES_OPTIONS = {
+    { key = "teleportPrompt", name = "Телепорты",
+      desc = "Окно телепорта в подземелье при вступлении в группу Поиска групп:" ..
+             " кнопка телепорта в один клик, если он изучен." },
+    { key = "paladinWeapon", name = "Баф паладина",
+      desc = "Кликабельная иконка по центру экрана (только паладин): по клику" ..
+             " накладывает обряд освящения (усиленное оружие). Появляется, когда" ..
+             " на оружии нет временного зачарования." },
+    { key = "reloadMenuButton", name = "Кнопка перезагрузки",
+      desc = "Добавляет кнопку «Перезагрузить UI» сверху игрового меню (Esc)." },
+}
+
+-- -------------------------------------------------------------------------
+-- Макросы паладина (вкладка «Макросы»). Игра до сих пор не даёт задавать ID
+-- спеллов в макросах, поэтому нужны отдельные РУ/ЕУ версии с локализованными
+-- именами. Префикс 1.x_RainonUI держит их в начале списка.
+-- -------------------------------------------------------------------------
+-- «?» (fileID 134400): с #showtooltip макрос сам подтянет иконку заклинания,
+-- поэтому фиксированную иконку не задаём.
+local MACRO_ICON = 134400
+-- Иконка строки «Создать всё» — как у вкладки (класс-крест паладина)
+local MACRO_ALL_ICON = "Interface\\Icons\\ClassIcon_Paladin"
+
+-- Пары РУ/ЕУ по способностям. icon — fileID иконки способности (задан явно).
+local MACRO_ROWS = {
+    {
+        icon = 133192, -- Торжество
+        ru = { name = "1.1_RainonUI", label = "Торжество",
+               body = "#showtooltip \n/cast [@mouseover, exists, nodead, noharm][] Торжество" },
+        eu = { name = "1.2_RainonUI", label = "Word of Glory",
+               body = "#showtooltip \n/cast [@mouseover, exists, nodead, noharm][] Word of Glory" },
+    },
+    {
+        icon = 135966, -- Жертвенное благословение / Blessing of Sacrifice
+        ru = { name = "1.3_RainonUI", label = "Жертв. благословение",
+               body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Жертвенное благословение" },
+        eu = { name = "1.4_RainonUI", label = "Blessing of Sacrifice",
+               body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Sacrifice" },
+    },
+}
+
+-- Создаёт/обновляет набор макросов в ОБЩИХ (аккаунтных) макросах. Только вне
+-- боя (CreateMacro/EditMacro в бою заблокированы).
+local function CreateMacroSet(list)
+    if InCombatLockdown() then
+        ns.Print("нельзя создавать макросы в бою — выйди из боя и нажми снова.")
+        return
+    end
+    local created, updated, failed = 0, 0, 0
+    for _, mac in ipairs(list) do
+        local idx = GetMacroIndexByName and GetMacroIndexByName(mac.name) or 0
+        if idx and idx > 0 then
+            local ok = pcall(EditMacro, idx, mac.name, MACRO_ICON, mac.body)
+            if ok then updated = updated + 1 else failed = failed + 1 end
+        else
+            local numAcc = (GetNumMacros and GetNumMacros()) or 0
+            if numAcc >= 120 then
+                failed = failed + 1  -- нет места в общих макросах
+            else
+                local ok = pcall(CreateMacro, mac.name, MACRO_ICON, mac.body, false)
+                if ok then created = created + 1 else failed = failed + 1 end
+            end
+        end
+    end
+    if failed > 0 then
+        ns.Print(string.format("макросы: создано %d, обновлено %d, не удалось %d — " ..
+            "проверь, что в ОБЩИХ макросах есть свободные слоты (лимит 120).", created, updated, failed))
+    else
+        ns.Print(string.format("макросы готовы: создано %d, обновлено %d. Открой " ..
+            ns.C("FFFF00", "/macro") .. ", перетащи на панель и замени НИК_ИГРОКА.", created, updated))
+    end
+end
+
 -- -------------------------------------------------------------------------
 -- Построение списка чекбоксов на прокручиваемой панели
 -- -------------------------------------------------------------------------
@@ -326,9 +399,83 @@ local function CreateOptionsWindow()
         onToolToggle)
     currPanel:SetPoint("TOPLEFT")
 
+    -- Панель «Удобства»: телепорт, баф паладина, кнопка перезагрузки
+    local featuresPanel = BuildChecklist(container,
+        FEATURES_OPTIONS,
+        function(key) return ns.db.features[key] end,
+        function(opt, state)
+            ns.db.features[opt.key] = state
+            if opt.key == "paladinWeapon" and ns.PaladinBuff then
+                ns.PaladinBuff.Apply()
+            elseif opt.key == "teleportPrompt" and not state and ns.Teleport then
+                ns.Teleport.Hide()
+            end
+        end)
+    featuresPanel:SetPoint("TOPLEFT")
+
+    -- Панель «Макросы»: «Создать ВСЕ» по центру + матрица [иконка | РУ | ЕУ]
+    local macroPanel = CreateFrame("Frame", nil, container)
+    macroPanel:SetSize(520, 220)
+    macroPanel:SetPoint("TOPLEFT")
+    do
+        local info = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        info:SetPoint("TOPLEFT", 12, -10)
+        info:SetPoint("TOPRIGHT", -12, -10)
+        info:SetJustifyH("CENTER")
+        info:SetText("Создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") .. " макросах (префикс " ..
+            C("FFD100", "1.x_RainonUI") .. "). " .. C("FFD100", "РУ") .. "/" .. C("FFD100", "ЕУ") ..
+            " — одна способность на нужном языке клиента.\nПосле — " .. C("FFFF00", "/macro") ..
+            ", перетащи на панель и замени " .. C("FFD100", "НИК_ИГРОКА") .. ".")
+
+        -- одна строка матрицы: [иконка] [кнопка РУ] [кнопка ЕУ]
+        local function MakeRow(prev, icon, ruText, ruFn, euText, euFn)
+            local rowF = CreateFrame("Frame", nil, macroPanel)
+            rowF:SetSize(26 + 8 + 210 + 8 + 210, 26)
+            rowF:SetPoint("TOP", prev, "BOTTOM", 0, -10)
+
+            local ic = rowF:CreateTexture(nil, "ARTWORK")
+            ic:SetSize(26, 26)
+            ic:SetPoint("LEFT", rowF, "LEFT", 0, 0)
+            ic:SetTexture(icon)
+            ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+            local ruB = CreateFrame("Button", nil, rowF, "UIPanelButtonTemplate")
+            ruB:SetSize(210, 24)
+            ruB:SetPoint("LEFT", ic, "RIGHT", 8, 0)
+            ruB:SetText(ruText)
+            ruB:SetScript("OnClick", ruFn)
+
+            local euB = CreateFrame("Button", nil, rowF, "UIPanelButtonTemplate")
+            euB:SetSize(210, 24)
+            euB:SetPoint("LEFT", ruB, "RIGHT", 8, 0)
+            euB:SetText(euText)
+            euB:SetScript("OnClick", euFn)
+
+            return rowF
+        end
+
+        local function CollectSet(langKey)
+            local t = {}
+            for _, row in ipairs(MACRO_ROWS) do t[#t + 1] = row[langKey] end
+            return t
+        end
+
+        -- Верхняя строка: [логотип] [Создать все РУ] [Создать все ЕУ]
+        local prev = MakeRow(info, MACRO_ALL_ICON,
+            "Создать все РУ", function() CreateMacroSet(CollectSet("ru")) end,
+            "Создать все ЕУ", function() CreateMacroSet(CollectSet("eu")) end)
+
+        -- Строки по способностям: [иконка спелла] [РУ] [ЕУ]
+        for _, row in ipairs(MACRO_ROWS) do
+            prev = MakeRow(prev, row.icon,
+                row.ru.label, function() CreateMacroSet({ row.ru }) end,
+                row.eu.label, function() CreateMacroSet({ row.eu }) end)
+        end
+    end
+
     -- Панель «Ссылки»: кнопка выделяет ссылку, копировать Ctrl+C
     local linksPanel = CreateFrame("Frame", nil, container)
-    linksPanel:SetSize(520, 180)
+    linksPanel:SetSize(520, 230)
     linksPanel:SetPoint("TOPLEFT")
     do
         local LINKS = {
@@ -336,6 +483,8 @@ local function CreateOptionsWindow()
               url = "https://publish.obsidian.md/sanctumoflight/Библиотеки/Игра/Аддоны" },
             { name = "Boosty",
               url = "https://boosty.to/rainon" },
+            { name = "Discord",
+              url = "https://discord.com/invite/yAhvHbM" },
         }
         local y = -20
         for _, link in ipairs(LINKS) do
@@ -383,6 +532,11 @@ local function CreateOptionsWindow()
         { panel = currPanel,
           intro = "Валюта ремесла: напоминание потратить излишек Moxie." ..
               " Иконку можно двигать в режиме редактирования Blizzard." },
+        { panel = featuresPanel,
+          intro = "Удобства: окно телепорта в подземелье, иконка освящения оружия" ..
+              " паладина и кнопка перезагрузки в игровом меню." },
+        { panel = macroPanel,
+          intro = "Макросы паладина: создание готовых макросов (РУ/ЕУ) в общих макросах." },
         { panel = linksPanel,
           intro = "Полезные ссылки автора: библиотека аддонов и поддержка." },
     }
@@ -464,7 +618,9 @@ local function CreateOptionsWindow()
         if ok and info then moxieTexture = info.iconFileID end
     end
     MakeTab(4, moxieTexture or "Interface\\Icons\\INV_Misc_Bag_08", "Валюта — купи сумку!")
-    MakeTab(5, "Interface\\Icons\\INV_Misc_Book_09", "Ссылки — Obsidian и Boosty")
+    MakeTab(5, 1030099, "Удобства — телепорт, паладин, перезагрузка")
+    MakeTab(6, "Interface\\Icons\\ClassIcon_Paladin", "Макросы — паладин")
+    MakeTab(7, "Interface\\Icons\\INV_Misc_Book_09", "Ссылки — Obsidian и Boosty")
 
     -- Кнопка перезагрузки: квадратик у левого нижнего угла окна,
     -- в том же стиле, что и боковые вкладки

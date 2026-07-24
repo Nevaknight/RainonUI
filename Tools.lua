@@ -754,11 +754,15 @@ local function CreateMover(key, label, w, h, applyFn)
     end)
 
     m.ApplyPosition = applyFn
+    m._label = label
     movers[key] = m
     return m
 end
 
 local function ShowMovers()
+    -- Если подключена LibEditMode — боксы показывает она (родной Edit Mode),
+    -- старый показ отключаем, чтобы не дублировать.
+    if ns.EditMode and ns.EditMode.Available() then return end
     if not ns.db then return end
     for _, m in pairs(movers) do
         m.Refresh()
@@ -800,6 +804,31 @@ CreateMover("combattimer", "Таймер боя", 90, 26, ApplyTimerPosition)
 ns.RegisterMessage("RAINON_DB_READY", function()
     for _, m in pairs(movers) do m.ApplyPosition() end
     HookEditMode()
+    -- Новая логика: подключаем боксы муверов к родному Edit Mode (LibEditMode).
+    -- Бокс — прокси: EditMode двигает его, а onChanged двигает реальную цель
+    -- через applyFn (поэтому близард-фреймы и мульти-фреймы тоже безопасны).
+    if ns.EditMode and ns.EditMode.Available() and ns.db and ns.db.positions then
+        for key, m in pairs(movers) do
+            m:SetScript("OnDragStart", nil)
+            m:SetScript("OnDragStop", nil)
+            m:EnableMouseWheel(false)
+            -- прячем старую UI бокса (поля X/Y, подпись масштаба, верхнюю
+            -- надпись «RainonUI») — теперь всё в окошке настроек Edit Mode
+            if m.title then m.title:Hide() end
+            if m.scaleLabel then m.scaleLabel:Hide() end
+            if m.xBox and m.xBox:GetParent() then m.xBox:GetParent():Hide() end
+            ns.EditMode.Register(m, {
+                name = "RainonUI: " .. (m._label or key),
+                key = key,
+                showInEditMode = true,
+                getCfg = function()
+                    ns.db.positions[key] = ns.db.positions[key] or {}
+                    return ns.db.positions[key]
+                end,
+                onChanged = m.ApplyPosition,
+            })
+        end
+    end
 end)
 ns.RegisterMessage("RAINON_REAPPLY", HookEditMode)
 local combatStart = nil

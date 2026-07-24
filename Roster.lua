@@ -34,9 +34,10 @@ local CONC_CURRENCY = {
 -- 1/1 → 18ч (без таланта). Прочее (2/2 и т.п.) — пока по умолчанию 18ч,
 -- точное время подтвердим позже.
 local function PeriodForMax(maxCharges)
-    if maxCharges == 4 then return 9 * 3600 + 10 * 60 end -- 9ч10м
-    if maxCharges == 1 then return 18 * 3600 end          -- 18ч
-    return 18 * 3600                                       -- по умолчанию 18ч
+    if maxCharges == 4 then return 9 * 3600 + 10 * 60 end  -- 9ч10м
+    if maxCharges == 2 then return 12 * 3600 + 50 * 60 end -- 12ч50м
+    if maxCharges == 1 then return 18 * 3600 end           -- 18ч
+    return 18 * 3600                                        -- по умолчанию 18ч
 end
 
 local function ReadCharges(recipeID)
@@ -183,7 +184,7 @@ local function CreateMinimapButton()
 
     local icon = b:CreateTexture(nil, "BACKGROUND")
     icon:SetSize(20, 20)
-    icon:SetTexture("Interface\\Icons\\INV_Misc_PocketWatch_01")
+    icon:SetTexture("Interface\\AddOns\\RainonUI\\Media\\logo")
     icon:SetPoint("TOPLEFT", 7, -6)
     b.icon = icon
 
@@ -192,8 +193,14 @@ local function CreateMinimapButton()
     overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     overlay:SetPoint("TOPLEFT")
 
-    b:SetScript("OnClick", function()
-        if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
+    b:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            -- ПКМ — окно знаний и зарядов
+            if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
+        else
+            -- ЛКМ — главное меню настроек аддона (/rs)
+            if SlashCmdList and SlashCmdList.RAINONUI then SlashCmdList.RAINONUI("") end
+        end
     end)
     b:SetScript("OnDragStart", function()
         b:SetScript("OnUpdate", function()
@@ -209,8 +216,9 @@ local function CreateMinimapButton()
     b:SetScript("OnDragStop", function() b:SetScript("OnUpdate", nil) end)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("RainonUI — Профессии", 1, 1, 1)
-        GameTooltip:AddLine("Клик — окно недельных знаний и зарядов.", 0.8, 0.8, 0.8)
+        GameTooltip:SetText("RainonUI", 1, 1, 1)
+        GameTooltip:AddLine("ЛКМ — меню настроек аддона.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("ПКМ — окно знаний и зарядов.", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Перетаскивание — двигать кнопку.", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
