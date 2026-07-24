@@ -135,10 +135,6 @@ local PROF_OPTIONS = {
       desc = "Главный выключатель всего по профессиям: напоминания о баффах" ..
              " крафта, кнопка миникарты и окно недельных знаний/зарядов." },
     { header = "Баффы крафта" },
-    { key = "prof_phial", name = "Флакон Харанир",
-      desc = "При открытом окне любой профессии проверяет бафф «Haranir Phial of Ingenuity» (spellID 1239755). Нет баффа — иконка с подсветкой." },
-    { key = "prof_essence", name = "Расколотая сущность",
-      desc = "При открытом окне наложения чар дополнительно проверяет бафф «Shattered Essence» (spellID 1235733). Нет баффа — иконка с подсветкой." },
 }
 
 local CURR_OPTIONS = {
@@ -182,10 +178,13 @@ local MACRO_ICON = 134400
 -- Иконка строки «Создать всё» — как у вкладки (класс-крест паладина)
 local MACRO_ALL_ICON = "Interface\\Icons\\ClassIcon_Paladin"
 
--- Пары РУ/ЕУ по способностям. icon — fileID иконки способности (задан явно).
+-- Пары РУ/ЕУ по способностям. icon — fileID иконки; desc — подсказка (что
+-- делает макрос) для инфо-кнопки справа.
 local MACRO_ROWS = {
     {
         icon = 133192, -- Торжество
+        desc = "Лечит цель под курсором (наведение на рамку или модель игрока)," ..
+               " если она жива и союзник; иначе — по обычным правилам (текущая цель).",
         ru = { name = "1.1_RainonUI", label = "Торжество",
                body = "#showtooltip \n/cast [@mouseover, exists, nodead, noharm][] Торжество" },
         eu = { name = "1.2_RainonUI", label = "Word of Glory",
@@ -193,6 +192,8 @@ local MACRO_ROWS = {
     },
     {
         icon = 135966, -- Жертвенное благословение / Blessing of Sacrifice
+        desc = "Накладывает защитное благословение на игрока, чьё имя вписано" ..
+               " в макрос. Замени НИК_ИГРОКА на нужное имя.",
         ru = { name = "1.3_RainonUI", label = "Жертв. благословение",
                body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Жертвенное благословение" },
         eu = { name = "1.4_RainonUI", label = "Blessing of Sacrifice",
@@ -299,6 +300,36 @@ end
 -- -------------------------------------------------------------------------
 local optionsFrame
 
+-- Выпадающий список на MenuUtil: кнопка показывает текущий выбор, клик
+-- открывает меню с радио-опциями. options = { {text=, value=}, ... }.
+local function MakeDropdown(parent, width, get, set, options)
+    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    btn:SetSize(width, 22)
+    local function CurrentText()
+        local v = get()
+        for _, o in ipairs(options) do
+            if o.value == v then return o.text end
+        end
+        return options[1] and options[1].text or "—"
+    end
+    btn:SetText(CurrentText())
+    btn:SetScript("OnClick", function()
+        if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+        MenuUtil.CreateContextMenu(btn, function(_, root)
+            for _, o in ipairs(options) do
+                root:CreateRadio(o.text,
+                    function() return get() == o.value end,
+                    function()
+                        set(o.value)
+                        btn:SetText(CurrentText())
+                        return MenuResponse and MenuResponse.Close
+                    end)
+            end
+        end)
+    end)
+    return btn
+end
+
 local function CreateOptionsWindow()
     local f = CreateFrame("Frame", "RainonUIOptions", UIParent, "DefaultPanelFlatTemplate")
     f:SetSize(620, 590)
@@ -370,12 +401,45 @@ local function CreateOptionsWindow()
         onToolToggle)
     profPanel:SetPoint("TOPLEFT")
 
-    -- Кнопка открытия отдельного окна «Недельные знания» (Knowledge.lua).
+    -- Строки «Баффы крафта»: галочка + название + выпадающий список выбора,
+    -- и кнопка открытия окна «Недельные знания» (Knowledge.lua).
     do
-        local base = profPanel:GetHeight()
+        local y = -profPanel:GetHeight() + 6
+
+        -- строка: [галочка трекера] [название] [дропдаун выбора]
+        local function ProfRow(toolKey, label, dropWidth, cfgKey, options)
+            local cb = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+            cb:SetSize(24, 24)
+            cb:SetPoint("TOPLEFT", 10, y)
+            cb:SetChecked(ns.db.tools[toolKey] ~= false)
+            cb:SetScript("OnClick", function(self)
+                onToolToggle({ key = toolKey }, self:GetChecked() and true or false)
+            end)
+            local lbl = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            lbl:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+            lbl:SetText(label)
+            local dd = MakeDropdown(profPanel, dropWidth,
+                function() return ns.db.tools[cfgKey] end,
+                function(v) ns.db.tools[cfgKey] = v end,
+                options)
+            dd:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+            y = y - 32
+        end
+
+        ProfRow("prof_phial", "Харанирский флакон изобретательности", 120, "phialQuality", {
+            { text = "Качество 1", value = 241313 },
+            { text = "Качество 2", value = 241312 },
+        })
+        ProfRow("prof_essence", "Раскалывание сущности", 210, "shatterEssence", {
+            { text = "Частица чистой Бездны",       value = 236952 },
+            { text = "Частица дикой магии",         value = 236951 },
+            { text = "Частица изначальной энергии", value = 236950 },
+            { text = "Частица света",               value = 236949 },
+        })
+
         local knowBtn = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
         knowBtn:SetSize(230, 26)
-        knowBtn:SetPoint("TOPLEFT", 10, -base - 6)
+        knowBtn:SetPoint("TOPLEFT", 10, y - 6)
         knowBtn:SetText("Недельные знания…")
         knowBtn:SetScript("OnClick", function()
             if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
@@ -389,7 +453,7 @@ local function CreateOptionsWindow()
             GameTooltip:Show()
         end)
         knowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        profPanel:SetHeight(base + 40)
+        profPanel:SetHeight(-y + 44)
     end
 
     -- Панель «Валюта»
@@ -427,10 +491,13 @@ local function CreateOptionsWindow()
             " — одна способность на нужном языке клиента.\nПосле — " .. C("FFFF00", "/macro") ..
             ", перетащи на панель и замени " .. C("FFD100", "НИК_ИГРОКА") .. ".")
 
-        -- одна строка матрицы: [иконка] [кнопка РУ] [кнопка ЕУ]
-        local function MakeRow(prev, icon, ruText, ruFn, euText, euFn)
+        -- одна строка матрицы: [иконка] [кнопка РУ] [кнопка ЕУ] [инфо-?]
+        -- ширина фиксированная (со слотом под инфо) — чтобы столбцы РУ/ЕУ
+        -- совпадали во всех строках, даже без инфо-кнопки.
+        local ROW_W = 26 + 8 + 210 + 8 + 210 + 8 + 18
+        local function MakeRow(prev, icon, ruText, ruFn, euText, euFn, desc)
             local rowF = CreateFrame("Frame", nil, macroPanel)
-            rowF:SetSize(26 + 8 + 210 + 8 + 210, 26)
+            rowF:SetSize(ROW_W, 26)
             rowF:SetPoint("TOP", prev, "BOTTOM", 0, -10)
 
             local ic = rowF:CreateTexture(nil, "ARTWORK")
@@ -451,6 +518,23 @@ local function CreateOptionsWindow()
             euB:SetText(euText)
             euB:SetScript("OnClick", euFn)
 
+            -- инфо-кнопка «i» справа (только для строк способностей)
+            if desc then
+                local infoBtn = CreateFrame("Button", nil, rowF)
+                infoBtn:SetSize(18, 18)
+                infoBtn:SetPoint("LEFT", euB, "RIGHT", 8, 0)
+                local itex = infoBtn:CreateTexture(nil, "ARTWORK")
+                itex:SetAllPoints()
+                itex:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+                infoBtn:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText("Что делает макрос", 1, 1, 1)
+                    GameTooltip:AddLine(desc, 0.85, 0.85, 0.85, true)
+                    GameTooltip:Show()
+                end)
+                infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end
+
             return rowF
         end
 
@@ -460,16 +544,17 @@ local function CreateOptionsWindow()
             return t
         end
 
-        -- Верхняя строка: [логотип] [Создать все РУ] [Создать все ЕУ]
+        -- Верхняя строка: [логотип] [Создать ВСЕ РУ] [Создать ВСЕ ЕУ] (без инфо)
         local prev = MakeRow(info, MACRO_ALL_ICON,
-            "Создать все РУ", function() CreateMacroSet(CollectSet("ru")) end,
-            "Создать все ЕУ", function() CreateMacroSet(CollectSet("eu")) end)
+            "Создать ВСЕ РУ", function() CreateMacroSet(CollectSet("ru")) end,
+            "Создать ВСЕ ЕУ", function() CreateMacroSet(CollectSet("eu")) end)
 
-        -- Строки по способностям: [иконка спелла] [РУ] [ЕУ]
+        -- Строки по способностям: [иконка спелла] [РУ] [ЕУ] [инфо]
         for _, row in ipairs(MACRO_ROWS) do
             prev = MakeRow(prev, row.icon,
                 row.ru.label, function() CreateMacroSet({ row.ru }) end,
-                row.eu.label, function() CreateMacroSet({ row.eu }) end)
+                row.eu.label, function() CreateMacroSet({ row.eu }) end,
+                row.desc)
         end
     end
 

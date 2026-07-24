@@ -917,6 +917,64 @@ local essenceIcon = CreateIconDisplay({ size = 48, x = 50, y = 120, icon = ESSEN
 AddGlow(essenceIcon)
 registry.prof_essence = essenceIcon
 
+-- -------------------------------------------------------------------------
+-- Клик по иконкам. Иконки показываются только при открытом окне профессии
+-- (вне боя), поэтому атрибуты secure-кнопки обновляем безопасно при показе.
+--   * Флакон — secure-кнопка type="item": выпивает выбранный флакон.
+--   * Раскалывание — обычная кнопка: CraftRecipe(1235731) с подстановкой
+--     выбранной частицы (окно наложения чар уже открыто → крафт срабатывает
+--     по аппаратному событию клика).
+-- -------------------------------------------------------------------------
+local SHATTER_RECIPE = 1235731
+
+local phialBtn = CreateFrame("Button", nil, phialIcon, "SecureActionButtonTemplate")
+phialBtn:SetAllPoints()
+phialBtn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+phialBtn:SetAttribute("type", "item")
+local phialHL = phialBtn:CreateTexture(nil, "HIGHLIGHT")
+phialHL:SetAllPoints(); phialHL:SetColorTexture(1, 1, 1, 0.2)
+phialBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Харанирский флакон", 1, 1, 1)
+    GameTooltip:AddLine("Клик — выпить выбранный флакон (выбор во вкладке «Профессии»).", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+phialBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+local function UpdatePhialAttr()
+    if InCombatLockdown() then return end
+    local id = ns.db and ns.db.tools and ns.db.tools.phialQuality
+    if id then phialBtn:SetAttribute("item", "item:" .. id) end
+end
+
+-- Раскалывание — secure-кнопка type="macro" с проверенным рабочим макросом:
+--   /run C_TradeSkillUI.CraftRecipe(1235731)
+--   /use item:<выбранная частица>
+-- Макрос-текст обновляем вне боя (иконка видна только при открытом окне
+-- профессии). Переключение рецепта в окне — часть механики, это ок.
+local essenceBtn = CreateFrame("Button", nil, essenceIcon, "SecureActionButtonTemplate")
+essenceBtn:SetAllPoints()
+essenceBtn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+essenceBtn:SetAttribute("type", "macro")
+local essHL = essenceBtn:CreateTexture(nil, "HIGHLIGHT")
+essHL:SetAllPoints(); essHL:SetColorTexture(1, 1, 1, 0.2)
+essenceBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Раскалывание сущности", 1, 1, 1)
+    GameTooltip:AddLine("Клик — расколоть выбранную частицу (выбор во вкладке «Профессии»).", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+essenceBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+local function UpdateShatterAttr()
+    if InCombatLockdown() then return end
+    local id = ns.db and ns.db.tools and ns.db.tools.shatterEssence
+    if id then
+        essenceBtn:SetAttribute("macrotext",
+            "/run C_TradeSkillUI.CraftRecipe(" .. SHATTER_RECIPE .. ")\n/use item:" .. id)
+    end
+end
+
 local function RefreshProfIcons()
     local t = ns.GetSpellTexture(PHIAL_SPELL)
     if t then phialIcon.Icon:SetTexture(t) end
@@ -963,12 +1021,14 @@ local function UpdateProfBuffs()
     end
     RefreshProfIcons()
     if enabled("prof_phial") and not ns.GetPlayerAura(PHIAL_SPELL) then
+        UpdatePhialAttr()
         phialIcon:Activate(nil)
     else
         phialIcon:Deactivate()
     end
     if enabled("prof_essence") and isEnchanting
        and not ns.GetPlayerAura(ESSENCE_SPELL) then
+        UpdateShatterAttr()
         essenceIcon:Activate(nil)
     else
         essenceIcon:Deactivate()

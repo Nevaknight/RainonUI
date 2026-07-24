@@ -46,6 +46,8 @@ ns.defaults = {
         -- Профессии
         prof_phial = true, prof_essence = true,
         professions_enabled = true, -- мастер-выключатель всего по профессиям
+        phialQuality = 241312,      -- itemID выбранного флакона (для клика по иконке)
+        shatterEssence = 236952,    -- itemID частицы для раскалывания
         -- Валюта
         curr_moxie = true,
         -- Прочее
