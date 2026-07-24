@@ -61,6 +61,7 @@ ns.defaults = {
         readybar     = { x = 0,   y = -180, scale = 1 },
         bonusroll    = { x = 0,   y = -240, scale = 1 },
         keystone     = { x = 0,   y = 40,   scale = 1 },
+        tankmark     = { x = 0,   y = 160,  scale = 1 },
     },
     -- Мультиперсонажный ростер для окна знаний/зарядов (аккаунтный).
     -- [GUID] = { name, realm, classFile, lastUpdate, profs = {...},
@@ -72,6 +73,8 @@ ns.defaults = {
         paladinWeapon = true,    -- иконка освящения оружия для паладина
         teleportPrompt = true,   -- окно телепорта при вступлении в группу ЛФГ
         teleportScale = 1.0,
+        tankMark = false,        -- авто-метка танка при проверке готовности (только 5-ки)
+        tankMarkIcon = 8,        -- индекс метки цели (8 = череп, 7 = крест, …)
     },
     -- Настройки окна знаний/зарядов
     knowledge = {

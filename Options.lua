@@ -165,6 +165,11 @@ local FEATURES_OPTIONS = {
              " на оружии нет временного зачарования." },
     { key = "reloadMenuButton", name = "Кнопка перезагрузки",
       desc = "Добавляет кнопку «Перезагрузить UI» сверху игрового меню (Esc)." },
+    { key = "tankMark", name = "Метка танка",
+      desc = "Если ты танк, при проверке готовности по центру появляется иконка" ..
+             " выбранного значка с подписью «Задать танку метку?». Клик ставит" ..
+             " значок на себя. Когда проверка готовности заканчивается — окно" ..
+             " скрывается. Иконку можно двигать в режиме редактирования." },
 }
 
 -- -------------------------------------------------------------------------
@@ -473,9 +478,40 @@ local function CreateOptionsWindow()
                 ns.PaladinBuff.Apply()
             elseif opt.key == "teleportPrompt" and not state and ns.Teleport then
                 ns.Teleport.Hide()
+            elseif opt.key == "tankMark" and ns.Tools and ns.Tools.RefreshTankMark then
+                ns.Tools.RefreshTankMark()
             end
         end)
     featuresPanel:SetPoint("TOPLEFT")
+
+    -- Выбор значка для «Метки танка» (дропдаун под списком «Удобства»).
+    -- Значки — стандартные метки цели с инлайн-иконкой в тексте.
+    do
+        local y = -featuresPanel:GetHeight() + 4
+        local lbl = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lbl:SetPoint("TOPLEFT", 12, y)
+        lbl:SetText("Значок метки танка:")
+        local MARK = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_%d:16|t "
+        local markOptions = {
+            { text = MARK:format(8) .. "Череп",       value = 8 },
+            { text = MARK:format(7) .. "Крест",       value = 7 },
+            { text = MARK:format(6) .. "Квадрат",     value = 6 },
+            { text = MARK:format(5) .. "Полумесяц",   value = 5 },
+            { text = MARK:format(4) .. "Треугольник", value = 4 },
+            { text = MARK:format(3) .. "Ромб",        value = 3 },
+            { text = MARK:format(2) .. "Круг",        value = 2 },
+            { text = MARK:format(1) .. "Звезда",      value = 1 },
+        }
+        local dd = MakeDropdown(featuresPanel, 150,
+            function() return ns.db.features.tankMarkIcon or 8 end,
+            function(v)
+                ns.db.features.tankMarkIcon = v
+                if ns.Tools and ns.Tools.RefreshTankMark then ns.Tools.RefreshTankMark() end
+            end,
+            markOptions)
+        dd:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
+        featuresPanel:SetHeight(featuresPanel:GetHeight() + 40)
+    end
 
     -- Панель «Макросы»: «Создать ВСЕ» по центру + матрица [иконка | РУ | ЕУ]
     local macroPanel = CreateFrame("Frame", nil, container)
@@ -494,7 +530,7 @@ local function CreateOptionsWindow()
         -- одна строка матрицы: [иконка] [кнопка РУ] [кнопка ЕУ] [инфо-?]
         -- ширина фиксированная (со слотом под инфо) — чтобы столбцы РУ/ЕУ
         -- совпадали во всех строках, даже без инфо-кнопки.
-        local ROW_W = 26 + 8 + 210 + 8 + 210 + 8 + 18
+        local ROW_W = 26 + 8 + 210 + 8 + 210 + 8 + 36
         local function MakeRow(prev, icon, ruText, ruFn, euText, euFn, desc)
             local rowF = CreateFrame("Frame", nil, macroPanel)
             rowF:SetSize(ROW_W, 26)
@@ -521,11 +557,14 @@ local function CreateOptionsWindow()
             -- инфо-кнопка «i» справа (только для строк способностей)
             if desc then
                 local infoBtn = CreateFrame("Button", nil, rowF)
-                infoBtn:SetSize(18, 18)
+                infoBtn:SetSize(36, 36)  -- в 2 раза крупнее прежней иконки
                 infoBtn:SetPoint("LEFT", euB, "RIGHT", 8, 0)
                 local itex = infoBtn:CreateTexture(nil, "ARTWORK")
                 itex:SetAllPoints()
-                itex:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+                -- Иконка «i» как в Spellbook игрока: текстура кнопки
+                -- MainHelpPlateButton (Interface\Common\help-i) — крупная и
+                -- без пикселей, вместо старой FriendsFrame\InformationIcon.
+                itex:SetTexture("Interface\\Common\\help-i")
                 infoBtn:SetScript("OnEnter", function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText("Что делает макрос", 1, 1, 1)
@@ -619,7 +658,8 @@ local function CreateOptionsWindow()
               " Иконку можно двигать в режиме редактирования Blizzard." },
         { panel = featuresPanel,
           intro = "Удобства: окно телепорта в подземелье, иконка освящения оружия" ..
-              " паладина и кнопка перезагрузки в игровом меню." },
+              " паладина, кнопка перезагрузки в игровом меню и кликабельная" ..
+              " метка танка." },
         { panel = macroPanel,
           intro = "Макросы паладина: создание готовых макросов (РУ/ЕУ) в общих макросах." },
         { panel = linksPanel,
@@ -749,11 +789,25 @@ end
 
 local function ToggleOptions()
     if not ns.db then return end
+    -- Защита от сбоя: в бою окно настроек не открываем и не создаём.
+    -- Переключение галочек скрытия могло прятать защищённые фреймы Blizzard
+    -- и валить lua-ошибки, поэтому все настройки — только вне боя.
+    if InCombatLockdown() then
+        ns.Print("настройки недоступны в бою — открой их после боя.")
+        return
+    end
     if not optionsFrame then
         optionsFrame = CreateOptionsWindow()
     end
     optionsFrame:SetShown(not optionsFrame:IsShown())
 end
+
+-- При входе в бой прячем окно настроек, если оно открыто.
+ns.RegisterEvent("PLAYER_REGEN_DISABLED", function()
+    if optionsFrame and optionsFrame:IsShown() then
+        optionsFrame:Hide()
+    end
+end)
 
 SLASH_RAINONUI1 = "/rainon"
 SLASH_RAINONUI2 = "/rs"

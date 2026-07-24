@@ -3,7 +3,7 @@ package-as: RainonUI
 # Ручной чейнджлог: CurseForge берёт текст отсюда, а НЕ генерирует из git —
 # так в описании релиза не всплывают автор, e-mail и хэши коммитов.
 manual-changelog:
-  filename: CHANGELOG.md
+  filename: Changelog.md
   markup-type: markdown
 
 # Внешние библиотеки: CurseForge подтягивает их из официальных репозиториев

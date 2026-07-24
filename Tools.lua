@@ -1240,6 +1240,104 @@ ns.RegisterEvent("PLAYER_ENTERING_WORLD", UpdateMoxie)
 ns.Tools.UpdateMoxie = UpdateMoxie
 
 -- =========================================================================
+-- МЕТКА ТАНКА. Простая логика:
+--   1) началась проверка готовности (READY_CHECK);
+--   2) если я танк — показываем иконку выбранного значка с подписью
+--      «Задать танку метку?»;
+--   3) проверка готовности закончилась (READY_CHECK_FINISHED) — прячем.
+-- Клик по иконке ставит значок на себя. В Midnight SetRaidTarget из кода
+-- аддона игра игнорирует, поэтому ставим по клику через защищённую кнопку
+-- type="macro" с нативной командой /tm — она идёт по разрешённому пути.
+-- Иконку можно двигать/масштабировать в режиме редактирования.
+-- =========================================================================
+local TANKMARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_%d"
+
+local function TankMarkIndex()
+    return (ns.db and ns.db.features and ns.db.features.tankMarkIcon) or 8
+end
+
+-- Иконка + подпись снизу «Задать танку метку?» (timer=false → без цифр).
+local tankMark = CreateIconDisplay({ size = 48, x = 0, y = 160, strata = "HIGH",
+                                     timer = false,
+                                     label = "Задать танку метку?", labelSize = 15 })
+tankMark.Icon:SetTexCoord(0, 1, 0, 1)  -- значки метки рисуем целиком, без обрезки
+registry.tankmark = tankMark
+
+local tankMarkBtn = CreateFrame("Button", nil, tankMark, "SecureActionButtonTemplate")
+tankMarkBtn:SetAllPoints()
+tankMarkBtn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+tankMarkBtn:SetAttribute("type", "macro")
+local tmHL = tankMarkBtn:CreateTexture(nil, "HIGHLIGHT")
+tmHL:SetAllPoints(); tmHL:SetColorTexture(1, 1, 1, 0.2)
+tankMarkBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Метка танка", 1, 1, 1)
+    GameTooltip:AddLine("Клик — поставить выбранный значок на себя. " ..
+        "Значок выбирается во вкладке «Удобства».", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+tankMarkBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Клик ставит значок на СЕБЯ (я — танк). Атрибут меняем только вне боя.
+local function UpdateTankMarkAttr()
+    if InCombatLockdown() then return end
+    tankMarkBtn:SetAttribute("macrotext", "/tm [@player] " .. TankMarkIndex())
+end
+
+local function ApplyTankMarkPosition()
+    PositionDisplay(tankMark, "tankmark")
+end
+CreateMover("tankmark", "Метка танка", 56, 56, ApplyTankMarkPosition)
+
+-- Танк ли игрок: по назначенной роли или по специализации.
+local function IsPlayerTank()
+    if UnitGroupRolesAssigned and UnitGroupRolesAssigned("player") == "TANK" then
+        return true
+    end
+    local spec = GetSpecialization and GetSpecialization()
+    if spec and GetSpecializationRole and GetSpecializationRole(spec) == "TANK" then
+        return true
+    end
+    return false
+end
+
+-- Скрытие безопасно: защищённую кнопку нельзя прятать в бою — откладываем
+-- до выхода из боя (PLAYER_REGEN_ENABLED).
+local hidePending = false
+local function HideTankPrompt()
+    if InCombatLockdown() then hidePending = true; return end
+    hidePending = false
+    tankMark:Deactivate()
+end
+
+-- Проверка готовности началась: если включено и я танк — показываем окно.
+local function ShowTankPrompt()
+    if InCombatLockdown() then return end
+    if not (ns.db and ns.db.features and ns.db.features.tankMark) then return end
+    if not IsPlayerTank() then return end
+    tankMark.Icon:SetTexture(TANKMARK_TEX:format(TankMarkIndex()))
+    UpdateTankMarkAttr()
+    tankMark:Activate(nil)
+end
+
+ns.RegisterEvent("READY_CHECK", ShowTankPrompt)
+ns.RegisterEvent("READY_CHECK_FINISHED", function() HideTankPrompt() end)
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+    if hidePending then HideTankPrompt() end
+end)
+
+-- Смена галочки/значка в «Удобствах».
+ns.Tools.RefreshTankMark = function()
+    if not (ns.db and ns.db.features and ns.db.features.tankMark) then
+        HideTankPrompt(); return
+    end
+    if tankMark.active and not InCombatLockdown() then
+        tankMark.Icon:SetTexture(TANKMARK_TEX:format(TankMarkIndex()))
+        UpdateTankMarkAttr()
+    end
+end
+
+-- =========================================================================
 -- ПОЛОСА ГОТОВНОСТИ и БОНУСНАЯ ДОБЫЧА: муверы (двигать/размер/X-Y)
 -- =========================================================================
 local function ApplyReadyBarPosition()
