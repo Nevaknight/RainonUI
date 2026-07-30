@@ -20,8 +20,17 @@ local LEM = LibStub and LibStub("LibEditMode", true)
 ns.EditMode = ns.EditMode or {}
 local registered = {}   -- [frame] = { opts = }
 
+-- Тип настроек LibEditMode (Slider/Checkbox/Dropdown/…) — чтобы модули могли
+-- собирать свои доп. слайдеры (opts.extraSettings), напр. «Ширина».
+ns.EditMode.SettingType = LEM and LEM.SettingType or nil
+
 function ns.EditMode.Available()
     return LEM ~= nil
+end
+
+-- Активен ли сейчас режим редактирования Blizzard (через LibEditMode).
+function ns.EditMode.IsEditing()
+    return LEM ~= nil and LEM.IsInEditMode and LEM:IsInEditMode() and true or false
 end
 
 local function cfgFor(key)
@@ -175,7 +184,7 @@ function ns.EditMode.Register(frame, opts)
     local maxX = math.floor(uw / 2)
     local maxY = math.floor(uh / 2)
 
-    LEM:AddFrameSettings(frame, {
+    local settings = {
         {
             name = "Координата X",
             kind = LEM.SettingType.Slider,
@@ -203,9 +212,22 @@ function ns.EditMode.Register(frame, opts)
             set = function(_, v) c.scale = v; ApplyLayout(frame, opts) end,
             formatter = PctScale,
         },
-    })
+    }
+    -- Доп. настройки модуля (например слайдер «Ширина» у полосы готовности).
+    if opts.extraSettings then
+        for _, s in ipairs(opts.extraSettings) do settings[#settings + 1] = s end
+    end
+    LEM:AddFrameSettings(frame, settings)
 
     registered[frame] = { opts = opts }
     ApplyLayout(frame, opts)
     return true
+end
+
+-- Сохранить позицию зарегистрированного фрейма из его текущего положения
+-- (для свободного перетаскивания в обычной игре — координаты попадут в тот же
+-- конфиг, что и слайдеры X/Y редактора). Без библиотеки — тихо ничего.
+function ns.EditMode.SaveFrame(frame)
+    local d = frame and registered[frame]
+    if d then SaveFromFrame(frame, d.opts) end
 end

@@ -58,7 +58,7 @@ ns.defaults = {
         prof_phial   = { x = -50, y = 120,  scale = 1 },
         prof_essence = { x = 50,  y = 120,  scale = 1 },
         curr_moxie   = { x = 0,   y = 0,    scale = 1 },
-        readybar     = { x = 0,   y = -180, scale = 1 },
+        readybar     = { x = 0,   y = -180, scale = 1, width = 220 },
         bonusroll    = { x = 0,   y = -240, scale = 1 },
         keystone     = { x = 0,   y = 40,   scale = 1 },
         tankmark     = { x = 0,   y = 160,  scale = 1 },
@@ -75,6 +75,19 @@ ns.defaults = {
         teleportScale = 1.0,
         tankMark = false,        -- авто-метка танка при проверке готовности (только 5-ки)
         tankMarkIcon = 8,        -- индекс метки цели (8 = череп, 7 = крест, …)
+        -- Трактат: подпись в подсказке + пиксельное свечение (раздельно)
+        treatiseTooltip = true,
+        treatiseGlow = true,
+        -- Звук при предложении воскрешения (окно «Воскреснуть»)
+        resurrectSoundOn = false,   -- звук, когда ТЕБЯ воскрешают (окно «Воскреснуть»)
+        resurrectSound = nil,       -- ИМЯ звука из LibSharedMedia (nil → дефолт)
+        resCastSoundOn = false,     -- звук, когда КТО-ТО в группе/рейде кастует воскрешение
+        resCastSound = nil,         -- ИМЯ звука из LibSharedMedia (nil → дефолт)
+        -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
+        craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
+        -- Режим «крестики скрытия»: на скрываемых элементах UI показываются
+        -- крестики; клик по крестику включает галку скрытия и прячет элемент.
+        hideSetupMode = false,
     },
     -- Настройки окна знаний/зарядов
     knowledge = {
@@ -329,8 +342,14 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
     if name == ADDON_NAME then
         ns.InitDB()
         ns.SendMessage("RAINON_DB_READY")
-    elseif ns.db then
-        -- Ленивые Blizzard-аддоны — повторно применяем скрытие
+    elseif ns.db and type(name) == "string"
+        and (name:find("^Blizzard_")           -- ленивые модули Blizzard
+             or name:find("DBM") or name:find("BigWigs")) then
+        -- Повторно применяем скрытие/хуки ТОЛЬКО когда догружаются модули
+        -- Blizzard (в них лениво создаются наши целевые фреймы — профессии,
+        -- эпохальный ключ, бонусный бросок) или босс-моды (для таймера
+        -- перерыва). На ПОСТОРОННИЕ аддоны (WeeklyKnowledge и любые другие)
+        -- мы не реагируем и в них не лезем.
         ns.SendMessage("RAINON_REAPPLY")
     end
 end)
@@ -340,6 +359,7 @@ ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
     ns.SendMessage("RAINON_REAPPLY")
     if not greeted then
         greeted = true
-        ns.Print("загружен. Настройки: " .. ns.C("FFFF00", "/rainon"))
+        ns.Print("загружен. Настройки: " .. ns.C("FFFF00", "/rainon") ..
+            " или " .. ns.C("FFFF00", "/rs"))
     end
 end)

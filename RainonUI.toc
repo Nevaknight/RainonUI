@@ -2,14 +2,16 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.3.2
+## Version: 1.4.0
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB
 ## X-Credits: LibEditMode © Adrian L Lange (p3lim)
 
 # Библиотеки (внешние; CurseForge подтягивает их из .pkgmeta при сборке,
-# локально положи официальные LibStub и LibEditMode в папку Libs\)
+# локально положи официальные библиотеки в папку Libs\)
 Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibEditMode\embed.xml
 
 Core.lua
@@ -18,7 +20,9 @@ HideUI.lua
 Tools.lua
 Roster.lua
 Knowledge.lua
+Treatise.lua
 GameMenu.lua
 PaladinBuff.lua
 Teleport.lua
+Integrations.lua
 Options.lua

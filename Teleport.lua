@@ -73,20 +73,34 @@ local pendingSpellID       -- статичный integer спелла для п�
 local pendingName          -- чистое имя подземелья для заголовка
 local pendingAttrSpellID   -- отложенная запись атрибута (сработает вне боя)
 local pendingShow, pendingHide
+local SetDungeonPortrait   -- (определяется ниже) иконка подземелья в портрете
 
 -- -------------------------------------------------------------------------
 -- Постройка попапа + secure-кнопки (один раз, вне боя)
 -- -------------------------------------------------------------------------
-local POPUP_W, POPUP_H = 240, 150
+local POPUP_W, POPUP_H = 260, 122
+
+-- Телепорт на настоящем кулдауне (не GCD)? Спелл — статичный integer из таблицы,
+-- не секрет, читать безопасно.
+local function OnCooldown(sid)
+    if not (sid and C_Spell and C_Spell.GetSpellCooldown) then return false end
+    if not (IsPlayerSpell and IsPlayerSpell(sid)) then return false end
+    local ci = C_Spell.GetSpellCooldown(sid)
+    if ci and ci.startTime and ci.duration and ci.duration > 0 then
+        local remaining = (ci.startTime + ci.duration) - GetTime()
+        return remaining > 1.5   -- отсекаем ГКД
+    end
+    return false
+end
 
 local function UpdateButtonVisuals()
     if not (secureBtn and pendingSpellID) then return end
     local sid = pendingSpellID
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
-    if info and info.iconID then secureBtn._icon:SetTexture(info.iconID) end
+    if info and info.iconID and SetDungeonPortrait then
+        SetDungeonPortrait(info.iconID)   -- иконка подземелья только в углу-портрете
+    end
     local known = IsPlayerSpell and IsPlayerSpell(sid)
-    secureBtn._icon:SetDesaturated(not known)
-    secureBtn._icon:SetAlpha(known and 1 or 0.4)
     local lc = known and 1 or 0.5
     if secureBtn._label then secureBtn._label:SetTextColor(lc, lc, lc, 1) end
     local cd = secureBtn._cd
@@ -102,6 +116,16 @@ end
 
 local SavePosition, RestorePosition, HidePrompt
 
+-- Иконка подземелья в круглом портрете окна (по аналогии с окном профессии).
+SetDungeonPortrait = function(tex)
+    if not popup then return end
+    tex = tex or 132327 -- запасная иконка (портал), если спелл ещё не прочитан
+    if popup.portrait then popup.portrait:SetTexture(tex) end
+    if popup.PortraitContainer and popup.PortraitContainer.portrait then
+        popup.PortraitContainer.portrait:SetTexture(tex)
+    end
+end
+
 local function BuildPopup()
     if popup then return popup end
 
@@ -114,73 +138,78 @@ local function BuildPopup()
     popup:SetClampedToScreen(true)
     popup:SetMovable(true)
     popup:EnableMouse(true)
-    -- Свободное перетаскивание — только без Edit Mode-библиотеки. С ней окно
-    -- двигается в родном режиме редактирования (Esc → Настройка интерфейса).
-    if not (ns.EditMode and ns.EditMode.Available()) then
-        popup:RegisterForDrag("LeftButton")
-        popup:SetScript("OnDragStart", function(s) s:StartMoving() end)
-        popup:SetScript("OnDragStop", function(s) s:StopMovingOrSizing(); SavePosition() end)
-    end
+    -- Свободное перетаскивание прямо в игре: игрок может утащить всплывшее окно,
+    -- и в следующий раз оно появится там же. В бою и в режиме редактирования
+    -- Blizzard перетаскивание не трогаем (там окно двигает Edit Mode).
+    popup:RegisterForDrag("LeftButton")
+    popup:SetScript("OnDragStart", function(s)
+        if InCombatLockdown() then return end
+        if ns.EditMode and ns.EditMode.IsEditing and ns.EditMode.IsEditing() then return end
+        s:StartMoving()
+    end)
+    popup:SetScript("OnDragStop", function(s)
+        s:StopMovingOrSizing()
+        -- Позицию храним в одном месте: если есть Edit Mode — в его конфиге
+        -- (чтобы координаты X/Y в редакторе совпадали), иначе — в teleportPos.
+        if ns.EditMode and ns.EditMode.Available() and ns.EditMode.SaveFrame then
+            ns.EditMode.SaveFrame(s)
+        else
+            SavePosition()
+        end
+    end)
+    -- Заголовок «Телепорт» + круглый портрет в углу под иконку подземелья
+    -- (по аналогии с окном профессии). Портрет НЕ прячем.
     if popup.SetTitle then popup:SetTitle("Телепорт") end
-    if ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(popup) end
-    if popup.PortraitContainer then popup.PortraitContainer:Hide() end
-    if popup.portrait then popup.portrait:Hide() end
+    SetDungeonPortrait(nil)
     if popup.CloseButton then
         popup.CloseButton:SetScript("OnClick", function() HidePrompt() end)
     end
 
     local host = popup.Inset or popup
 
-    -- Имя подземелья (может быть секретной строкой — SetText принимает секреты)
-    local nameFS = host:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    nameFS:SetPoint("TOPLEFT", host, "TOPLEFT", 6, -8)
-    nameFS:SetPoint("TOPRIGHT", host, "TOPRIGHT", -6, -8)
-    nameFS:SetHeight(22)
-    nameFS:SetJustifyH("CENTER")
-    nameFS:SetWordWrap(true)
-    popup._name = nameFS
-
-    -- Secure-кнопка телепорта (создаётся вне боя один раз; type/clicks больше
-    -- не трогаем, переписываем только "spell" и только вне боя). Клик — на
-    -- нажатие И отпускание: в текущем клиенте каст привязан к нажатию.
-    -- Красная кнопка в стиле игрового меню (ESC) — MainMenuFrameButtonTemplate
-    -- даёт вид, SecureActionButtonTemplate — защищённый каст. Совмещаем шаблоны.
+    -- Красная кнопка телепорта в стиле игрового меню (ESC), внутри бокса-инсета
+    -- по центру (не на нижней границе). Secure-кнопка создаётся один раз вне боя;
+    -- type/clicks больше не трогаем, переписываем только "spell" и только вне боя.
+    -- Клик — на нажатие И отпускание (каст привязан к нажатию). Без иконки, без
+    -- названия подземелья в окне — чистый близард-стиль по макету; текст по центру.
+    -- Название подземелья теперь показывается в подсказке при наведении.
     secureBtn = CreateFrame("Button", "RainonUITeleportButton", host,
         "SecureActionButtonTemplate, MainMenuFrameButtonTemplate")
-    secureBtn:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 8, 8)
-    secureBtn:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -8, 8)
-    secureBtn:SetHeight(40)
+    secureBtn:SetHeight(42)
+    secureBtn:SetPoint("LEFT", host, "LEFT", 16, 0)
+    secureBtn:SetPoint("RIGHT", host, "RIGHT", -16, 0) -- LEFT+RIGHT якорят и по вертикали в центр host
     secureBtn:RegisterForClicks("AnyDown", "AnyUp")
     secureBtn:SetAttribute("type", "spell")
     secureBtn:SetText("Телепортироваться")
     secureBtn._label = secureBtn:GetFontString()
+    if secureBtn._label then
+        secureBtn._label:ClearAllPoints()
+        secureBtn._label:SetPoint("CENTER", secureBtn, "CENTER", 0, 0)
+        secureBtn._label:SetJustifyH("CENTER")
+    end
 
-    -- Маленькая иконка спелла слева + кулдаун на ней
-    local icon = secureBtn:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(26, 26)
-    icon:SetPoint("LEFT", 8, 0)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    secureBtn._icon = icon
-
+    -- Кулдаун поверх всей кнопки. Обычно окно на кулдауне не показывается вовсе
+    -- (см. ShowPrompt) — свайп на случай, если КД начался при открытом окне.
     local cd = CreateFrame("Cooldown", nil, secureBtn, "CooldownFrameTemplate")
-    cd:SetPoint("CENTER", icon, "CENTER", 0, 0)
-    cd:SetSize(26, 26)
-    cd:SetHideCountdownNumbers(true)
+    cd:SetAllPoints(secureBtn)
+    cd:SetHideCountdownNumbers(false)
     cd:SetDrawSwipe(true); cd:SetDrawBling(false); cd:SetDrawEdge(false)
     secureBtn._cd = cd
 
+    -- Подсказка при наведении: куда ведёт телепорт (для новичков) + статус.
     secureBtn:SetScript("OnEnter", function(self)
         local sid = pendingSpellID
         if not sid then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(pendingName or "Подземелье", 1, 0.82, 0)
         if not (IsPlayerSpell and IsPlayerSpell(sid)) then
-            GameTooltip:SetText("Телепорт ещё не изучен.", 1, 0.5, 0.5, nil, true)
+            GameTooltip:AddLine("Телепорт ещё не изучен.", 1, 0.4, 0.4, true)
         else
             local ci = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
             if ci and ci.duration and ci.duration > 0 then
-                GameTooltip:SetText("Телепорт на кулдауне", 1, 0.7, 0.3)
+                GameTooltip:AddLine("Телепорт на кулдауне.", 1, 0.7, 0.3, true)
             else
-                GameTooltip:SetText("Телепорт: " .. (pendingName or "подземелье"), 1, 1, 1)
+                GameTooltip:AddLine("Нажмите, чтобы телепортироваться.", 0.8, 0.8, 0.8, true)
             end
         end
         GameTooltip:Show()
@@ -194,9 +223,6 @@ local function BuildPopup()
             key = "teleport",
             defaultX = 0, defaultY = 150,
             showInEditMode = true,
-            onEditModeShow = function(f)
-                if f._name then f._name:SetText("") end
-            end,
         })
     else
         popup:SetScale((ns.db.features and ns.db.features.teleportScale) or 1.0)
@@ -226,10 +252,11 @@ end
 -- -------------------------------------------------------------------------
 -- Показ / скрытие
 -- -------------------------------------------------------------------------
-local function ShowPrompt()
+local function ShowPrompt(force)
     if not Enabled() or not pendingSpellID then return end
+    -- Если телепорт на кулдауне — окно не показываем (тест форсит показ).
+    if not force and OnCooldown(pendingSpellID) then return end
     BuildPopup()
-    popup._name:SetText(pendingName or "")
     if InCombatLockdown() then
         -- В бою нельзя писать secure-атрибут и показывать защищённую кнопку
         -- (да и телепорт в бою не сработает) — откладываем весь показ.
@@ -296,7 +323,7 @@ ns.Teleport = {
         local e = SEASON_PORTALS[1]
         pendingSpellID = PickSpell(e)
         pendingName = "Тест телепорта"
-        local ok, err = pcall(ShowPrompt)
+        local ok, err = pcall(ShowPrompt, true)
         if not ok then
             ns.Print("ошибка окна телепорта: " .. tostring(err))
         elseif popup and popup:IsShown() then
@@ -340,6 +367,17 @@ local function OnZone()
 end
 ns.RegisterEvent("PLAYER_ENTERING_WORLD", OnZone)
 ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", OnZone)
+
+-- Окно прячем только ПОСЛЕ фактического телепорта — на успешном касте спелла
+-- портала (не по клику по кнопке). Зональный хук выше страхует на входе в
+-- инстанс. spellID своего каста — не секрет, но на всякий случай проверяем.
+ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
+    if unit ~= "player" or not pendingSpellID then return end
+    if issecretvalue(spellID) then return end
+    if spellID == pendingSpellID then
+        ClearPending(); HidePrompt()
+    end
+end)
 
 ns.RegisterEvent("PLAYER_REGEN_DISABLED", function()
     HidePrompt() -- телепорт в бою невозможен

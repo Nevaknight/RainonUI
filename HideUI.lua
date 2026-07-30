@@ -67,7 +67,9 @@ local PRD_CLASS = {
     drucombobar  = "DRUID",    arcanemagebar   = "MAGE",
 }
 
-local hooked = {}          -- [frame] = true
+local hooked = {}          -- [frame] = true (хук OnShow уже повешен)
+local frameKey = {}        -- [frame] = key (для проверки актуальности скрытия)
+local keyFrames = {}       -- [key] = { frame, ... } (чтобы вернуть при снятии галки)
 local specialApplied = {}  -- [key] = true
 local combatQueue = {}     -- защищённые фреймы, ждущие конца боя
 local pendingPaths = {}    -- [key] = { path, ... } — фреймы, ещё не созданные
@@ -81,6 +83,10 @@ local function ResolvePath(path)
     return obj
 end
 
+local function IsHideOn(key)
+    return ns.db and ns.db.hide and ns.db.hide[key] and true or false
+end
+
 local function SafeHide(frame)
     if InCombatLockdown() and frame.IsProtected and frame:IsProtected() then
         combatQueue[frame] = true
@@ -89,14 +95,29 @@ local function SafeHide(frame)
     end
 end
 
-local function KeepHidden(frame)
-    if not frame or hooked[frame] then return frame and true end
+local function Remember(key, frame)
+    keyFrames[key] = keyFrames[key] or {}
+    for _, f in ipairs(keyFrames[key]) do if f == frame then return end end
+    table.insert(keyFrames[key], frame)
+end
+
+-- Скрываем фрейм и вешаем ОДИН хук OnShow, который прячет фрейм ТОЛЬКО пока
+-- галка скрытия включена. Так снятие галки (Unhide) сразу возвращает окно —
+-- хук перестаёт его прятать, а мы показываем его вручную.
+local function KeepHidden(frame, key)
+    if not frame then return false end
     if type(frame) ~= "table" or not frame.HookScript or not frame.Hide then
         return false
     end
-    hooked[frame] = true
-    frame:HookScript("OnShow", SafeHide)
-    SafeHide(frame)
+    frameKey[frame] = key
+    Remember(key, frame)
+    if not hooked[frame] then
+        hooked[frame] = true
+        frame:HookScript("OnShow", function(f)
+            if IsHideOn(frameKey[f]) then SafeHide(f) end
+        end)
+    end
+    if IsHideOn(key) then SafeHide(frame) end
     return true
 end
 
@@ -127,6 +148,28 @@ local SPECIAL = {
     end,
 }
 
+-- Обратные действия для «особых» ключей — чтобы снятие галки возвращало всё
+-- как было, без /reload (где это возможно).
+local SPECIAL_UNDO = {
+    combattext = function()
+        -- Стандартные тайминги текста боя Blizzard.
+        _G.COMBATFEEDBACK_FADEINTIME  = 0.2
+        _G.COMBATFEEDBACK_HOLDTIME    = 2.0
+        _G.COMBATFEEDBACK_FADEOUTTIME = 0.3
+    end,
+    blizzdbm = function()
+        if RaidBossEmoteFrame then
+            RaidBossEmoteFrame:RegisterEvent("RAID_BOSS_EMOTE")
+        end
+    end,
+    lootHide = function()
+        if AlertFrame then
+            AlertFrame:RegisterEvent("SHOW_LOOT_TOAST")
+        end
+    end,
+    -- bossbanner: у баннера много событий — надёжнее вернуть через /reload.
+}
+
 local playerClass = nil
 
 local function ApplyKey(key)
@@ -142,7 +185,7 @@ local function ApplyKey(key)
     local list = FRAMES[key]
     if list then
         for _, path in ipairs(list) do
-            if not KeepHidden(ResolvePath(path)) then
+            if not KeepHidden(ResolvePath(path), key) then
                 missing = missing or {}
                 table.insert(missing, path)
             end
@@ -157,7 +200,7 @@ local function ApplyKey(key)
             local prd = _G.PersonalResourceDisplayFrame
             local container = prd and prd.ClassFrameContainer
             if container then
-                KeepHidden(container)
+                KeepHidden(container, key)
             else
                 missing = missing or {}
                 table.insert(missing, "PersonalResourceDisplayFrame.ClassFrameContainer")
@@ -166,6 +209,26 @@ local function ApplyKey(key)
     end
 
     pendingPaths[key] = missing
+end
+
+-- Снятие галки: возвращаем скрытые элементы обратно (без /reload, где можно).
+-- Хук OnShow больше не прячет их (проверяет ns.db.hide[key], уже false), а мы
+-- дополнительно показываем те, что сейчас скрыты.
+local function Unhide(key)
+    specialApplied[key] = nil
+    if SPECIAL_UNDO[key] then pcall(SPECIAL_UNDO[key]) end
+    local frames = keyFrames[key]
+    if frames then
+        for _, f in ipairs(frames) do
+            combatQueue[f] = nil
+            if f.Show then pcall(f.Show, f) end
+        end
+    end
+    -- Для «особых» ключей без обратного действия (баннер боссов) нужен /reload.
+    if SPECIAL[key] and not SPECIAL_UNDO[key] then
+        ns.Print("часть изменений вернётся после перезагрузки интерфейса (" ..
+            ns.C("FFFF00", "/reload") .. ").")
+    end
 end
 
 local function ApplyAll()
@@ -204,10 +267,107 @@ local function ApplyWithRetries()
     end
 end
 
+-- =========================================================================
+-- Режим настройки: крестики скрытия прямо на элементах интерфейса.
+-- Когда режим включён, на каждом ещё НЕ скрытом элементе (из FRAMES),
+-- который сейчас виден на экране, появляется красный крестик. Клик по нему
+-- включает галку скрытия этого элемента и прячет его — наглядно и удобно.
+-- =========================================================================
+local setupOverlays = {}   -- [key] = кнопка-крестик
+local setupTicker
+
+local function FirstFrameForKey(key)
+    local list = FRAMES[key]
+    if not list then return nil end
+    for _, path in ipairs(list) do
+        local f = ResolvePath(path)
+        if type(f) == "table" and f.IsShown then return f end
+    end
+    return nil
+end
+
+-- Человеческое название элемента — как в меню аддона (ns.HideNames заполняет
+-- Options.lua из того же списка). Фолбэк — сам ключ.
+local function HideLabel(key)
+    return (ns.HideNames and ns.HideNames[key]) or key
+end
+
+local function MakeSetupCross(key)
+    local x = setupOverlays[key]
+    if x then return x end
+    x = CreateFrame("Button", nil, UIParent)
+    x:SetSize(24, 24)
+    x:SetFrameStrata("FULLSCREEN_DIALOG")
+    x:SetFrameLevel(500)
+    -- Игровая красная кнопка-«X» (та же, что «отказаться» в розыгрыше добычи).
+    x:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    x:SetPushedTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Down")
+    local hl = x:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Highlight")
+    -- Мягкая тёмная подложка, чтобы крестик читался на любом фоне.
+    local bg = x:CreateTexture(nil, "BACKGROUND")
+    bg:SetPoint("TOPLEFT", -2, 2)
+    bg:SetPoint("BOTTOMRIGHT", 2, -2)
+    bg:SetColorTexture(0, 0, 0, 0.5)
+    x:SetScript("OnClick", function()
+        if ns.db and ns.db.hide then ns.db.hide[key] = true end
+        ApplyKey(key)
+        x:Hide()
+    end)
+    x:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Скрывать: " .. HideLabel(key), 1, 1, 1)
+        GameTooltip:AddLine("Клик — включить скрытие этого элемента в RainonUI.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    x:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    setupOverlays[key] = x
+    return x
+end
+
+local function RefreshSetup()
+    local on = ns.db and ns.db.features and ns.db.features.hideSetupMode
+    for key in pairs(FRAMES) do
+        local want = on and ns.db.hide and not ns.db.hide[key]
+        local f = want and FirstFrameForKey(key) or nil
+        if f and f:IsShown() then
+            local x = MakeSetupCross(key)
+            x:ClearAllPoints()
+            -- Крестик — по центру самого элемента (у некоторых фреймов, напр.
+            -- полосы опыта, угол far от видимой части — центр надёжнее).
+            x:SetPoint("CENTER", f, "CENTER", 0, 0)
+            x:Show()
+        elseif setupOverlays[key] then
+            setupOverlays[key]:Hide()
+        end
+    end
+end
+
+local function SetSetupMode(on)
+    if on then
+        RefreshSetup()
+        if not setupTicker then setupTicker = C_Timer.NewTicker(1, RefreshSetup) end
+    else
+        if setupTicker then setupTicker:Cancel(); setupTicker = nil end
+        for _, x in pairs(setupOverlays) do x:Hide() end
+    end
+end
+
 ns.HideUI = {
     ApplyKey = ApplyKey,
     ApplyAll = ApplyWithRetries,
+    SetSetupMode = SetSetupMode,
+    Unhide = Unhide,
 }
+
+-- Восстанавливаем режим настройки после входа в мир, если он был включён.
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    if ns.db and ns.db.features and ns.db.features.hideSetupMode then
+        C_Timer.After(2, function() SetSetupMode(true) end)
+    end
+end)
 
 ns.RegisterMessage("RAINON_REAPPLY", ApplyWithRetries)
 

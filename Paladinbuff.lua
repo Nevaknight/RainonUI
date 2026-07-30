@@ -151,9 +151,32 @@ local function WantShown()
     return (NeedBuff())
 end
 
+-- Наложение временного зачарования оружия (обряд) НЕ шлёт отдельного события,
+-- поэтому после показа иконки опрашиваем оружие по таймеру и прячем иконку,
+-- как только обряд наложен. Тикер живёт только пока иконка показана.
+local pollTicker
+local function StopPoll()
+    if pollTicker then pollTicker:Cancel(); pollTicker = nil end
+end
+local function StartPoll()
+    if pollTicker then return end
+    pollTicker = C_Timer.NewTicker(2, function()
+        if not (btn and btn:IsShown()) then StopPoll(); return end
+        -- в режиме редактирования иконка всегда видна — не трогаем
+        if ns.EditMode and ns.EditMode.IsEditing and ns.EditMode.IsEditing() then return end
+        -- в бою защищённую кнопку прятать нельзя — ждём конца боя
+        if InCombatLockdown() then return end
+        if not WantShown() then
+            btn:Hide()
+            StopPoll()
+        end
+    end)
+end
+
 local function Apply()
     if not IsPaladin() then
         if btn then btn:Hide() end
+        StopPoll()
         return
     end
     Build()
@@ -174,7 +197,13 @@ local function Apply()
         return
     end
     pendingShow, pendingHide = nil, nil
-    if want then btn:Show() else btn:Hide() end
+    if want then
+        btn:Show()
+        StartPoll()   -- пока иконка висит — следим, не наложен ли обряд
+    else
+        btn:Hide()
+        StopPoll()
+    end
 end
 
 -- Публичный доступ (для опций/слэша)

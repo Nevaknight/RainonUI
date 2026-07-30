@@ -817,6 +817,28 @@ ns.RegisterMessage("RAINON_DB_READY", function()
             if m.title then m.title:Hide() end
             if m.scaleLabel then m.scaleLabel:Hide() end
             if m.xBox and m.xBox:GetParent() then m.xBox:GetParent():Hide() end
+            -- У полосы готовности — дополнительный слайдер «Ширина».
+            local extra
+            if key == "readybar" and ns.EditMode.SettingType then
+                local mover = m
+                extra = {
+                    {
+                        name = "Ширина",
+                        kind = ns.EditMode.SettingType.Slider,
+                        default = 220, minValue = 120, maxValue = 500, valueStep = 5,
+                        get = function()
+                            local p = ns.db.positions.readybar
+                            return (p and p.width) or 220
+                        end,
+                        set = function(_, v)
+                            ns.db.positions.readybar = ns.db.positions.readybar or {}
+                            ns.db.positions.readybar.width = v
+                            if mover.ApplyPosition then mover.ApplyPosition() end
+                        end,
+                        formatter = function(v) return tostring(math.floor((v or 0) + 0.5)) end,
+                    },
+                }
+            end
             ns.EditMode.Register(m, {
                 name = "RainonUI: " .. (m._label or key),
                 key = key,
@@ -826,6 +848,7 @@ ns.RegisterMessage("RAINON_DB_READY", function()
                     return ns.db.positions[key]
                 end,
                 onChanged = m.ApplyPosition,
+                extraSettings = extra,
             })
         end
     end
@@ -1013,8 +1036,22 @@ local function DetectEnchanting()
     end)
 end
 
+-- Иконки баффов показываем ТОЛЬКО когда открыто РОДНОЕ окно профессии Midnight
+-- (Blizzard ProfessionsFrame). Другие аддоны могут открывать данные профессии в
+-- своих окнах/фоном — на них не реагируем.
+local function BlizzProfShown()
+    local pf = _G.ProfessionsFrame
+    return (pf and pf.IsShown and pf:IsShown()) and true or false
+end
+
 local function UpdateProfBuffs()
-    if not profOpen or not ns.ProfEnabled() then
+    -- Иконки флакона/сущности — родители secure-кнопок (phialBtn/essenceBtn).
+    -- Show/Hide такого фрейма в бою заблокированы (ADDON_ACTION_BLOCKED), а
+    -- аура-вотчер срабатывает и в бою — поэтому в бою НИЧЕГО не трогаем и
+    -- откладываем пересинк до выхода из боя (PLAYER_REGEN_ENABLED ниже).
+    -- Окно профессии в бою всё равно не открыть, так что мы ничего не теряем.
+    if InCombatLockdown() then return end
+    if not profOpen or not BlizzProfShown() or not ns.ProfEnabled() then
         phialIcon:Deactivate()
         essenceIcon:Deactivate()
         return
@@ -1053,6 +1090,10 @@ end)
 ns.RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED", function()
     if profOpen then DetectEnchanting(); UpdateProfBuffs() end
 end)
+
+-- После боя пересинхронизируем иконки: в бою мы их не трогали (secure-родитель),
+-- а окно профессии за это время наверняка закрылось — прячем аккуратно.
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", function() UpdateProfBuffs() end)
 
 -- Подстраховка: окно профессий может закрываться и без события
 local profFrameHooked = false
@@ -1340,10 +1381,21 @@ end
 -- =========================================================================
 -- ПОЛОСА ГОТОВНОСТИ и БОНУСНАЯ ДОБЫЧА: муверы (двигать/размер/X-Y)
 -- =========================================================================
-local function ApplyReadyBarPosition()
-    PositionDisplay(readyBar, "readybar")
+local READYBAR_BASE_W = 220
+local function ReadyBarWidth()
+    local p = ns.db and ns.db.positions and ns.db.positions.readybar
+    return (p and p.width) or READYBAR_BASE_W
 end
-CreateMover("readybar", "Полоса готовности", 220, 24, ApplyReadyBarPosition)
+local function ApplyReadyBarPosition()
+    local w = ReadyBarWidth()
+    readyBar:SetWidth(w)                       -- ширину задаём отдельно от масштаба
+    PositionDisplay(readyBar, "readybar")      -- масштаб + позиция центра
+    -- Бокс-прокси Edit Mode подгоняем по ширине (его собственный масштаб
+    -- умножит визуально так же, как у полосы) — чтобы превью совпадало.
+    local m = movers.readybar
+    if m then m:SetWidth(w) end
+end
+CreateMover("readybar", "Полоса готовности", READYBAR_BASE_W, 24, ApplyReadyBarPosition)
 
 -- Универсальный перенос окна Blizzard на позицию мувера. Blizzard
 -- переанкоривает такие окна при каждом показе — возвращаем на место
@@ -1445,4 +1497,127 @@ end
 
 ns.RegisterMessage("RAINON_DB_READY", function()
     UpdateConsumables()
+end)
+
+-- =========================================================================
+-- ЗВУК ВОСКРЕШЕНИЯ: когда на тебя применили воскрешение (появилось окно
+-- «Воскреснуть») — проигрываем выбранный звук. Звук выбирается в настройках
+-- (вкладка «Удобства»). RESURRECT_REQUEST срабатывает на предложение
+-- воскрешения (не self-res у духа).
+--
+-- Звуки берём из LibSharedMedia-3.0 — стандартный способ, как в BigWigs/DBM:
+-- общий список содержит и наши голосовые файлы, и стандартные игровые звуки,
+-- и звуки любых других аддонов, зарегистрированных в общей медиатеке. Выбор
+-- хранится по ИМЕНИ звука (строка), а не по индексу.
+-- =========================================================================
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+local LSM_SOUND = LSM and ((LSM.MediaType and LSM.MediaType.SOUND) or "sound") or "sound"
+
+-- Регистрируем наши голоса + горсть стандартных игровых звуков в медиатеку
+-- (по аналогии с BigWigs: свои .ogg по пути, игровые — по FileDataID).
+if LSM then
+    LSM:Register(LSM_SOUND, "RainonUI: Все готовы", SOUND.allready)
+    LSM:Register(LSM_SOUND, "RainonUI: Перерыв",    SOUND.breaktimer)
+    LSM:Register(LSM_SOUND, "RainonUI: Лидер",      SOUND.leader)
+    LSM:Register(LSM_SOUND, "RainonUI: Призыв",     SOUND.summon)
+    LSM:Register(LSM_SOUND, "RainonUI: Почта",      SOUND.mail)
+    LSM:Register(LSM_SOUND, "RainonUI: Ремонт",     SOUND.repair)
+    -- Стандартные игровые (FileDataID — не зависят от языка клиента).
+    LSM:Register(LSM_SOUND, "Тревога (Raid Warning)", 567397)
+    LSM:Register(LSM_SOUND, "Флаг захвачен",          569200)
+    LSM:Register(LSM_SOUND, "Беги! (голос)",          552035)
+end
+
+-- Полный список имён звуков для селектора: из медиатеки (наши + игровые +
+-- звуки других аддонов), отсортированный. Без библиотеки — минимальный запас.
+function ns.Tools.GetSoundNames()
+    if LSM then
+        local list = LSM:List(LSM_SOUND) or {}
+        local names = {}
+        for _, n in ipairs(list) do names[#names + 1] = n end
+        table.sort(names, function(a, b) return a:lower() < b:lower() end)
+        return names
+    end
+    return { "RainonUI: Все готовы", "RainonUI: Лидер", "RainonUI: Призыв" }
+end
+
+-- Имя по умолчанию: сначала «Boss Warning» (точное совпадение, затем частичное
+-- без учёта регистра — имена в голосовых паках бывают с префиксами/суффиксами),
+-- потом наш голос, иначе первый не-"None".
+function ns.Tools.DefaultSoundName()
+    local names = ns.Tools.GetSoundNames()
+    for _, n in ipairs(names) do if n == "Boss Warning" then return n end end
+    for _, n in ipairs(names) do if n:lower():find("boss warning", 1, true) then return n end end
+    for _, n in ipairs(names) do if n == "RainonUI: Все готовы" then return n end end
+    for _, n in ipairs(names) do if n ~= "None" then return n end end
+    return names[1] or "None"
+end
+
+-- Текущее выбранное имя по ключу (миграция со старого числового индекса +
+-- фолбэк на дефолт, если имя пропало из медиатеки).
+local function CurrentNameForKey(key)
+    local f = ns.db and ns.db.features
+    local v = f and f[key]
+    if type(v) == "string" and v ~= "" then return v end
+    local def = ns.Tools.DefaultSoundName()
+    if f then f[key] = def end
+    return def
+end
+-- Звук «меня воскресили» и звук «союзник кастует воскрешение».
+function ns.Tools.CurrentSoundName()         return CurrentNameForKey("resurrectSound") end
+function ns.Tools.CurrentResCastSoundName()  return CurrentNameForKey("resCastSound") end
+
+local function PlaySoundByName(name)
+    if not (name and LSM) then return end
+    local media = LSM:Fetch(LSM_SOUND, name, true) -- true = без дефолта
+    if media then pcall(PlaySoundFile, media, "Master") end -- принимает путь и FileDataID
+end
+ns.Tools.PlaySoundByName = PlaySoundByName
+
+-- Предпросмотр для селекторов.
+ns.Tools.PlayResurrectPreview = function() PlaySoundByName(ns.Tools.CurrentSoundName()) end
+ns.Tools.PlayResCastPreview   = function() PlaySoundByName(ns.Tools.CurrentResCastSoundName()) end
+
+-- (1) Когда воскрешают ТЕБЯ — окно «Воскреснуть».
+ns.RegisterEvent("RESURRECT_REQUEST", function()
+    if ns.db and ns.db.features and ns.db.features.resurrectSoundOn then
+        PlaySoundByName(ns.Tools.CurrentSoundName())
+    end
+end)
+
+-- (2) Когда КТО-ТО в группе/рейде кастует воскрешение (одиночное или массовое).
+-- Ловим UNIT_SPELLCAST_SUCCEEDED от игроков группы/рейда и сверяем spellID со
+-- списком известных воскрешений. spellID/unit в инстансах могут быть Secret —
+-- в этом случае просто пропускаем (issecretvalue-гард).
+local _issecret = issecretvalue or function() return false end
+local RES_CAST_SPELLS = {
+    [2006]   = true, -- Жрец: Воскрешение
+    [212036] = true, -- Жрец: Массовое воскрешение
+    [7328]   = true, -- Паладин: Искупление
+    [212056] = true, -- Паладин: Отпущение (массовое)
+    [2008]   = true, -- Шаман: Дух предков
+    [50769]  = true, -- Друид: Оживление
+    [20484]  = true, -- Друид: Возрождение (боевое)
+    [115178] = true, -- Монах: Реинкарнация (Resuscitate)
+    [20707]  = true, -- Чернокнижник: Камень души
+    [61999]  = true, -- Рыцарь смерти: Поднять союзника (боевое)
+    [83968]  = true, -- Массовое воскрешение (общий)
+}
+ns.Tools.ResurrectionCastSpells = RES_CAST_SPELLS
+
+local function IsGroupUnit(unit)
+    if type(unit) ~= "string" then return false end
+    if unit == "player" then return true end
+    if unit:match("^party%d+$") or unit:match("^raid%d+$") then return true end
+    return false
+end
+
+ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
+    local f = ns.db and ns.db.features
+    if not (f and f.resCastSoundOn) then return end
+    if _issecret(unit) or _issecret(spellID) then return end
+    if not IsGroupUnit(unit) then return end
+    if RES_CAST_SPELLS[spellID] then
+        PlaySoundByName(ns.Tools.CurrentResCastSoundName())
+    end
 end)

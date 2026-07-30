@@ -42,10 +42,13 @@ end
 
 local function ReadCharges(recipeID)
     if not (C_TradeSkillUI and C_TradeSkillUI.GetRecipeCooldown) then return nil end
-    -- Рецепт должен быть ИЗУЧЕН, иначе заряды не показываем
+    -- Рецепт должен быть ИЗУЧЕН. Но поле learned доступно не всегда (данные
+    -- рецепта подгружаются позже открытия окна), поэтому отсекаем ТОЛЬКО когда
+    -- learned явно false. Иначе просто пробуем прочитать заряды — нет данных,
+    -- GetRecipeCooldown вернёт пусто, и мы выйдем ниже.
     if C_TradeSkillUI.GetRecipeInfo then
-        local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        if not (info and info.learned) then return nil end
+        local iok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if iok and info and info.learned == false then return nil end
     end
     local ok, cooldown, _, charges, maxCharges = pcall(C_TradeSkillUI.GetRecipeCooldown, recipeID)
     if not ok then return nil end
@@ -74,10 +77,12 @@ function Roster.ScanCurrent()
 
     -- Профессии + недельный квест/трактат (name, icon, base, weeklyDone, treatiseDone)
     -- и концентрация по каждой профессии.
+    local freshProfs = false  -- достоверно ли прочитали список профессий в этот скан
     if ns.Tools and ns.Tools.GetWeeklyKnowledge then
         local oldProfs = e.profs
         local profs = ns.Tools.GetWeeklyKnowledge()
         if profs and #profs > 0 then
+            freshProfs = true
             for _, p in ipairs(profs) do
                 local cid = p.base and CONC_CURRENCY[p.base]
                 if cid and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
@@ -109,9 +114,13 @@ function Roster.ScanCurrent()
         e.abundant = (g[1] and g[1].done) or false
     end
 
-    -- Заряды рецептов алхимии — читаем только если у персонажа есть алхимия
-    -- (база 171) и рецепт изучен. Иначе чистим — чтобы не висели чужие/старые
-    -- заряды у персонажей без алхимии.
+    -- Заряды рецептов алхимии. Снапшот зарядов хранится в аккаунтном ростере и
+    -- показывается в окне ВСЕГДА (по времени, ns.Knowledge оценивает накопление),
+    -- независимо от того, открыто ли окно алхимии и на каком персонаже мы сейчас.
+    -- Поэтому здесь мы ТОЛЬКО обновляем данные, когда есть свежие, и НИКОГДА не
+    -- стираем снапшот из-за того, что данные сейчас недоступны (окно закрыто,
+    -- рецепт ещё не подгрузился). Стираем лишь когда достоверно знаем, что у
+    -- персонажа нет алхимии (список профессий прочитан в этот скан).
     e.charges = e.charges or {}
     local hasAlchemy = false
     if e.profs then
@@ -119,19 +128,15 @@ function Roster.ScanCurrent()
             if p.base == 171 then hasAlchemy = true; break end
         end
     end
-    if not hasAlchemy then
-        wipe(e.charges)
-    else
+    if hasAlchemy then
         for _, rid in ipairs(CHARGE_RECIPES) do
             local c = ReadCharges(rid)
-            if c then
-                e.charges[rid] = c
-            elseif C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo then
-                -- рецепт есть в API, но не изучен → убираем старую запись
-                local info = C_TradeSkillUI.GetRecipeInfo(rid)
-                if info and info.learned == false then e.charges[rid] = nil end
-            end
+            if c then e.charges[rid] = c end   -- есть свежие данные → обновляем
+            -- нет данных → оставляем прежний снапшот (он и так показывается)
         end
+    elseif freshProfs then
+        -- профессии прочитаны достоверно, алхимии нет → чистим фантомные заряды
+        wipe(e.charges)
     end
 end
 
@@ -158,6 +163,19 @@ end
 -- Кнопка миникарты
 -- -------------------------------------------------------------------------
 local minimapButton
+
+-- Оранжевый «в стиле лого» для названий действий в подсказке.
+local LOGO_HEX = "FFD100"
+
+-- Заглушка: контекстное меню для Shift+клика. Функционал повесим позже —
+-- пока просто открываем меню-заготовку, чтобы клики уже были заняты.
+local function OpenStubMenu(anchor, label)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:CreateTitle("RainonUI — " .. label)
+        root:CreateButton("Здесь появится функционал", function() end)
+    end)
+end
 
 local function UpdatePosition()
     if not minimapButton or not ns.db or not Minimap then return end
@@ -193,13 +211,24 @@ local function CreateMinimapButton()
     overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     overlay:SetPoint("TOPLEFT")
 
-    b:SetScript("OnClick", function(_, button)
+    b:SetScript("OnClick", function(self, button)
+        local shift = IsShiftKeyDown and IsShiftKeyDown()
         if button == "RightButton" then
-            -- ПКМ — окно знаний и зарядов
-            if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
+            if shift then
+                -- Shift+ПКМ — заглушка под будущее меню
+                OpenStubMenu(self, "Shift + ПКМ")
+            elseif ns.Knowledge and ns.Knowledge.Toggle then
+                -- ПКМ — окно знаний и зарядов
+                ns.Knowledge:Toggle()
+            end
         else
-            -- ЛКМ — главное меню настроек аддона (/rs)
-            if SlashCmdList and SlashCmdList.RAINONUI then SlashCmdList.RAINONUI("") end
+            if shift then
+                -- Shift+ЛКМ — заглушка под будущее меню
+                OpenStubMenu(self, "Shift + ЛКМ")
+            elseif SlashCmdList and SlashCmdList.RAINONUI then
+                -- ЛКМ — главное меню настроек аддона (/rs)
+                SlashCmdList.RAINONUI("")
+            end
         end
     end)
     b:SetScript("OnDragStart", function()
@@ -217,9 +246,15 @@ local function CreateMinimapButton()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("RainonUI", 1, 1, 1)
-        GameTooltip:AddLine("ЛКМ — меню настроек аддона.", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("ПКМ — окно знаний и зарядов.", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("Перетаскивание — двигать кнопку.", 0.8, 0.8, 0.8)
+        -- Название действия — оранжевым «в стиле лого», описание — белым.
+        local function Row(key, desc)
+            GameTooltip:AddLine(ns.C(LOGO_HEX, key) .. " — " .. desc, 1, 1, 1)
+        end
+        Row("ЛКМ", "меню настроек аддона.")
+        Row("ПКМ", "окно знаний и зарядов.")
+        Row("Shift + ЛКМ", "меню (скоро).")
+        Row("Shift + ПКМ", "меню (скоро).")
+        Row("Удерживайте ЛКМ", "двигать кнопку.")
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)

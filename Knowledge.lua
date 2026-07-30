@@ -98,6 +98,25 @@ local function PeriodForMax(maxCharges)
 end
 local function now() return (GetServerTime and GetServerTime()) or 0 end
 
+-- Граница последнего недельного сброса (обновляется в Render). Недельные
+-- объективы (изобилие, недельный квест, трактат), записанные в снапшот ДО
+-- этого момента, после сброса снова невыполнены — даже если оффлайн-персонаж
+-- об этом ещё «не знает». Показываем их как невыполненные, пока персонаж не
+-- пересканируется (зайдёшь на него — обновится).
+local weeklyResetBoundary
+local function LastWeeklyReset()
+    if C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset then
+        local ok, s = pcall(C_DateAndTime.GetSecondsUntilWeeklyReset)
+        if ok and s and s > 0 then
+            return now() + s - 7 * 24 * 3600
+        end
+    end
+    return nil
+end
+local function WeeklyStale(e)
+    return weeklyResetBoundary ~= nil and (e.lastUpdate or 0) < weeklyResetBoundary
+end
+
 local VOIDLIGHT_MARL = 3316 -- Мракозарный мергель (варбанд-валюта)
 
 local function FmtNum(n)
@@ -240,6 +259,24 @@ local function ChargeTooltip(self)
 end
 local function HideTooltip() GameTooltip:Hide() end
 
+-- Подсказка по трактату: по каждой профессии — использован он или нет.
+-- Учитывает недельный сброс (после сброса — «НЕ использован»).
+local function TreatiseTooltip(self)
+    local e = self.tdata
+    if not (e and e.profs) then GameTooltip:Hide(); return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Талассийский трактат", 1, 1, 1)
+    local stale = WeeklyStale(e)
+    for _, p in ipairs(e.profs) do
+        local done = p.treatiseDone and not stale
+        GameTooltip:AddDoubleLine(p.name or "?",
+            done and "использован" or "НЕ использован",
+            1, 1, 1,
+            done and 0.4 or 1, done and 1 or 0.45, done and 0.4 or 0.45)
+    end
+    GameTooltip:Show()
+end
+
 -- Максимальная оценка концентрации у персонажа (для сортировки).
 local function CharConc(e)
     local best = -1
@@ -315,6 +352,10 @@ local function AcquireRow(parent, i)
     r.herbsbtn:SetScript("OnLeave", HideTooltip)
     r.wondrousbtn:SetScript("OnEnter", ChargeTooltip)
     r.wondrousbtn:SetScript("OnLeave", HideTooltip)
+    -- Прозрачная кнопка над столбцом «Трактат» — подсказка по каждой профессии.
+    r.treatisebtn = CreateFrame("Button", nil, r.frame)
+    r.treatisebtn:SetScript("OnEnter", TreatiseTooltip)
+    r.treatisebtn:SetScript("OnLeave", HideTooltip)
     rowPool[i] = r
     return r
 end
@@ -329,6 +370,7 @@ local function HideAllRegions(r)
     r.treatise[1]:Hide(); r.treatise[2]:Hide()
     r.herbs:Hide(); r.wondrous:Hide()
     r.herbsbtn:Hide(); r.wondrousbtn:Hide()
+    if r.treatisebtn then r.treatisebtn:Hide() end
 end
 
 -- Заполнить одну ячейку. x — левый край столбца; всё по центру столбца
@@ -374,18 +416,21 @@ local function FillCell(r, col, x, e)
     elseif col.key == "abundant" then
         r.abundant:ClearAllPoints()
         r.abundant:SetPoint("CENTER", r.frame, "LEFT", center, 0)
-        r.abundant:SetTexture(e.abundant and READY_TEX or NOTREADY_TEX)
+        local abDone = e.abundant and not WeeklyStale(e)
+        r.abundant:SetTexture(abDone and READY_TEX or NOTREADY_TEX)
         r.abundant:Show()
     elseif col.key == "weekly" or col.key == "treatise" then
         local checks = r[col.key]
         local profs = e.profs or {}
         local n = (profs[1] and 1 or 0) + (profs[2] and 1 or 0)
+        local stale = WeeklyStale(e)
         local S, idx = 16, 0
         for j = 1, 2 do
             local p = profs[j]
             if p then
                 idx = idx + 1
                 local done = (col.key == "weekly") and p.weeklyDone or p.treatiseDone
+                if stale then done = false end
                 local t = checks[j]
                 local cx = center + (idx - (n + 1) / 2) * S
                 t:ClearAllPoints()
@@ -393,6 +438,14 @@ local function FillCell(r, col, x, e)
                 t:SetTexture(done and READY_TEX or NOTREADY_TEX)
                 t:Show()
             end
+        end
+        -- Прозрачная кнопка-подсказка на столбце «Трактат» (только он).
+        if col.key == "treatise" and r.treatisebtn then
+            r.treatisebtn.tdata = e
+            r.treatisebtn:ClearAllPoints()
+            r.treatisebtn:SetPoint("LEFT", r.frame, "LEFT", x, 0)
+            r.treatisebtn:SetSize(col.width, ROW_H)
+            r.treatisebtn:Show()
         end
     elseif col.key == "herbs" or col.key == "wondrous" then
         local rid = (col.key == "herbs") and ns.Roster.HERBS_RECIPE
@@ -470,6 +523,7 @@ end
 -- ------- построение таблицы ----------------------------------------------
 function Knowledge:Render()
     if not frame then return end
+    weeklyResetBoundary = LastWeeklyReset()  -- граница сброса на момент отрисовки
     local vis = VisibleColumns()
 
     local xOff, total = {}, 0
@@ -543,6 +597,16 @@ function Knowledge:Render()
         if not e.hidden then chars[#chars + 1] = e end
     end
     table.sort(chars, sortMode == "conc" and ByConc or ByName)
+    -- Текущий персонаж — всегда первой строкой (на нём и открыли окно).
+    local selfGUID = UnitGUID and UnitGUID("player")
+    if selfGUID then
+        for i, e in ipairs(chars) do
+            if e.guid == selfGUID then
+                if i > 1 then table.remove(chars, i); table.insert(chars, 1, e) end
+                break
+            end
+        end
+    end
     for _, r in ipairs(rowPool) do r.frame:Hide() end
 
     if #chars == 0 then
@@ -886,11 +950,19 @@ end
 
 function Knowledge:Toggle()
     autoOpened = false -- ручной вызов — не закрываем вместе с профессией
+    -- Уже открыто — закрыть можно всегда (в т.ч. в бою).
+    if frame and frame:IsShown() then frame:Hide(); return end
+    -- Не создаём/не открываем окно в бою (безопасность от случайных ошибок).
+    if InCombatLockdown() then
+        ns.Print("окно знаний недоступно в бою — открой после боя.")
+        return
+    end
     if not frame then CreateWindow() end
-    if frame:IsShown() then frame:Hide() else frame:Show() end
+    frame:Show()
 end
 
 function Knowledge:Open()
+    if InCombatLockdown() then return end
     if not frame then CreateWindow() end
     frame:Show()
 end
