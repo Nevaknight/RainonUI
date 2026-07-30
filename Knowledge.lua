@@ -37,6 +37,8 @@ local COLUMNS = {
     { key = "weekly",   title = "Квест",   width = 50,  toggle = true,
       tip = "Недельные задания у стола профессий." },
     { key = "treatise", title = "Трактат", width = 56,  toggle = true },
+    { key = "darkmoon", title = "Ярмарка", width = 60,  toggle = true,
+      tip = "Задание профессии на Ярмарке новолуния (раз в месяц, во время события)." },
     { key = "herbs",    title = "БТ",      width = 44,  toggle = true,
       tip = "Букет трав — заряды" },
     { key = "wondrous", title = "ЧС",      width = 46,  toggle = true,
@@ -60,9 +62,15 @@ end
 
 local function VisibleColumns()
     local cols = ns.db.knowledge.columns
+    -- «Ярмарка» показывается только когда идёт Ярмарка новолуния (автоскрытие).
+    local dmOpen = ns.Tools and ns.Tools.IsDarkmoonOpen and ns.Tools.IsDarkmoonOpen()
     local out = {}
     for _, c in ipairs(COLUMNS) do
-        if not c.toggle or cols[c.key] then out[#out + 1] = c end
+        if c.key == "darkmoon" then
+            if cols.darkmoon and dmOpen then out[#out + 1] = c end
+        elseif not c.toggle or cols[c.key] then
+            out[#out + 1] = c
+        end
     end
     return out
 end
@@ -277,6 +285,22 @@ local function TreatiseTooltip(self)
     GameTooltip:Show()
 end
 
+-- Подсказка по имени: имя в цвете класса + сервер (ники бывают одинаковые
+-- на разных серверах — сервер снимает путаницу).
+local function NameTooltip(self)
+    local e = self.ndata
+    if not e then GameTooltip:Hide(); return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(ClassColorName(e), 1, 1, 1)
+    local realm = e.realm
+    if realm and realm ~= "" then
+        GameTooltip:AddLine("Сервер: " .. realm, 0.7, 0.7, 0.7)
+    else
+        GameTooltip:AddLine("Сервер: —", 0.55, 0.55, 0.55)
+    end
+    GameTooltip:Show()
+end
+
 -- Максимальная оценка концентрации у персонажа (для сортировки).
 local function CharConc(e)
     local best = -1
@@ -331,6 +355,10 @@ local function AcquireRow(parent, i)
     r.hlbar:Hide()
     r.name = r.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.name:SetJustifyH("LEFT")
+    -- Прозрачная кнопка над именем — подсказка с сервером.
+    r.namebtn = CreateFrame("Button", nil, r.frame)
+    r.namebtn:SetScript("OnEnter", NameTooltip)
+    r.namebtn:SetScript("OnLeave", HideTooltip)
     r.prof1 = r.frame:CreateTexture(nil, "ARTWORK"); r.prof1:SetSize(18, 18)
     r.prof2 = r.frame:CreateTexture(nil, "ARTWORK"); r.prof2:SetSize(18, 18)
     r.prof1conc = r.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -344,6 +372,7 @@ local function AcquireRow(parent, i)
     r.abundant = MiniCheck(r.frame); r.abundant:SetSize(15, 15)
     r.weekly = { MiniCheck(r.frame), MiniCheck(r.frame) }
     r.treatise = { MiniCheck(r.frame), MiniCheck(r.frame) }
+    r.darkmoon = { MiniCheck(r.frame), MiniCheck(r.frame) }
     r.herbs = r.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.wondrous = r.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.herbsbtn = CreateFrame("Button", nil, r.frame)
@@ -362,12 +391,14 @@ end
 
 local function HideAllRegions(r)
     r.name:Hide()
+    if r.namebtn then r.namebtn:Hide() end
     r.prof1:Hide(); r.prof2:Hide()
     r.prof1conc:Hide(); r.prof2conc:Hide()
     r.prof1btn:Hide(); r.prof2btn:Hide()
     r.abundant:Hide()
     r.weekly[1]:Hide(); r.weekly[2]:Hide()
     r.treatise[1]:Hide(); r.treatise[2]:Hide()
+    r.darkmoon[1]:Hide(); r.darkmoon[2]:Hide()
     r.herbs:Hide(); r.wondrous:Hide()
     r.herbsbtn:Hide(); r.wondrousbtn:Hide()
     if r.treatisebtn then r.treatisebtn:Hide() end
@@ -383,6 +414,13 @@ local function FillCell(r, col, x, e)
         r.name:SetWidth(col.width - 8)
         r.name:SetText(ClassColorName(e))
         r.name:Show()
+        if r.namebtn then
+            r.namebtn.ndata = e
+            r.namebtn:ClearAllPoints()
+            r.namebtn:SetPoint("LEFT", r.frame, "LEFT", x, 0)
+            r.namebtn:SetSize(col.width, ROW_H)
+            r.namebtn:Show()
+        end
     elseif col.key == "prof1" or col.key == "prof2" then
         local slot = (col.key == "prof1") and 1 or 2
         local p = e.profs and e.profs[slot]
@@ -419,17 +457,21 @@ local function FillCell(r, col, x, e)
         local abDone = e.abundant and not WeeklyStale(e)
         r.abundant:SetTexture(abDone and READY_TEX or NOTREADY_TEX)
         r.abundant:Show()
-    elseif col.key == "weekly" or col.key == "treatise" then
+    elseif col.key == "weekly" or col.key == "treatise" or col.key == "darkmoon" then
         local checks = r[col.key]
         local profs = e.profs or {}
         local n = (profs[1] and 1 or 0) + (profs[2] and 1 or 0)
-        local stale = WeeklyStale(e)
+        -- Ярмарка — месячная (не недельная), поэтому недельный сброс к ней не применяем.
+        local stale = (col.key ~= "darkmoon") and WeeklyStale(e) or false
         local S, idx = 16, 0
         for j = 1, 2 do
             local p = profs[j]
             if p then
                 idx = idx + 1
-                local done = (col.key == "weekly") and p.weeklyDone or p.treatiseDone
+                local done
+                if col.key == "weekly" then done = p.weeklyDone
+                elseif col.key == "treatise" then done = p.treatiseDone
+                else done = p.darkmoonDone end
                 if stale then done = false end
                 local t = checks[j]
                 local cx = center + (idx - (n + 1) / 2) * S
@@ -859,29 +901,8 @@ local function CreateWindow()
     charsBtn:SetText("Персонажи")
     charsBtn:SetScript("OnClick", function() OpenCharsMenu(charsBtn) end)
 
-    -- Галочка слева от «Персонажи»: открывать/скрывать окно вместе с профессией.
-    -- Текст — слева от квадратика, чтобы не налезать на кнопки.
-    local autoCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    autoCB:SetSize(22, 22)
-    autoCB:SetPoint("RIGHT", charsBtn, "LEFT", -6, 0)
-    autoCB.Text:ClearAllPoints()
-    autoCB.Text:SetPoint("RIGHT", autoCB, "LEFT", -2, 0)
-    autoCB.Text:SetFontObject("GameFontHighlightSmall")
-    autoCB.Text:SetJustifyH("RIGHT")
-    autoCB.Text:SetText("Открывать с профессией")
-    autoCB:SetChecked(ns.db.knowledge.autoOpen and true or false)
-    autoCB:SetScript("OnClick", function(self)
-        ns.db.knowledge.autoOpen = self:GetChecked() and true or false
-    end)
-    autoCB:SetScript("OnEnter", function()
-        GameTooltip:SetOwner(autoCB, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Открывать с профессией", 1, 1, 1)
-        GameTooltip:AddLine("Окно будет открываться вместе с окном профессии" ..
-            " и скрываться вместе с ним. Отдельно всегда можно вызвать кнопкой" ..
-            " у миникарты или командой /rsk.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    autoCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (Галка «Открывать с профессией» перенесена в окно настроек, вкладка
+    --  «Профессии», рядом с кнопкой «Недельные знания…».)
 
     -- Мергель слева (варбанд-валюта): иконка у левой границы зеркально
     -- шестерёнке и на том же уровне (TOOL_Y); текст — относительно иконки.
@@ -963,6 +984,7 @@ end
 
 function Knowledge:Open()
     if InCombatLockdown() then return end
+    if ns.Tools and ns.Tools.RefreshDarkmoon then ns.Tools.RefreshDarkmoon() end
     if not frame then CreateWindow() end
     frame:Show()
 end

@@ -37,8 +37,7 @@ ns.defaults = {
         -- Тексты оповещений
         repair = true, cauldron = true, mail = true, healthstones = true,
         magetable = true, summon = true, mageeat = true,
-        -- Напоминания
-        consumables = true, delvemap = true,
+        -- (consumables/delvemap — в Архиве, 30.07.2026)
         -- Оповещения
         leader = true, readybar = true, combatdrop = true,
         -- Иконки
@@ -62,6 +61,7 @@ ns.defaults = {
         bonusroll    = { x = 0,   y = -240, scale = 1 },
         keystone     = { x = 0,   y = 40,   scale = 1 },
         tankmark     = { x = 0,   y = 160,  scale = 1 },
+        stickers     = { x = 0,   y = 300,  scale = 1 },
     },
     -- Мультиперсонажный ростер для окна знаний/зарядов (аккаунтный).
     -- [GUID] = { name, realm, classFile, lastUpdate, profs = {...},
@@ -100,7 +100,8 @@ ns.defaults = {
         hideMinimap = false,
         columns = {
             prof1 = true, prof2 = true, abundant = true,
-            weekly = true, treatise = true, herbs = true, wondrous = true,
+            weekly = true, treatise = true, darkmoon = true,
+            herbs = true, wondrous = true,
         },
     },
 }

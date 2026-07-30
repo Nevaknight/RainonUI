@@ -1,5 +1,13 @@
 # RainonUI — Changelog
 
+## 1.4.1
+
+* Knowledge window: new "Darkmoon Faire" column that tracks each character's monthly Darkmoon profession quest, toggleable from the "Columns" button. It auto-hides while the faire isn't running and reappears on its own during the event (detected from the in-game calendar — no need to open the calendar yourself).
+* Knowledge window: hovering a character's name now shows their realm in a tooltip, so same-named characters on different realms are easy to tell apart. The "Open with profession" toggle also moved to the Professions tab, next to the "Weekly Knowledge…" button.
+* Teleport prompt: enlarged the inner box so the button sits perfectly inside it, and centered the window title.
+* On-screen alert stickers redesigned with a cleaner framed panel and a title bar; the break sticker now shows its countdown in a circular badge, and the whole sticker block can be repositioned in Edit Mode.
+* Temporarily removed the consumables reminder and the delve-map reminder while they are being reworked.
+
 ## 1.4.0
 
 * Treatise reminder: an unused weekly treatise in your bags or warband bank now gets a moving pixel-glow border so you don't forget to use it. Works for every profession, in both the default Blizzard bags/bank and in Baganator.

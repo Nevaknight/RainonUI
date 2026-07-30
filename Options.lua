@@ -132,12 +132,6 @@ local TOOLS_OPTIONS = {
     { key = "mageeat",      name = "Кушай еду мага",
       desc = "Напоминание поесть еду мага, если здоровье ниже 60% в рейде." },
 
-    { header = "Напоминания" },
-    { key = "consumables", name = "Памятка расходников",
-      desc = "На отдыхе показывает, каких расходников не хватает: зелья, барабаны, вантийская руна, авто-молоток." },
-    { key = "delvemap",    name = "Карта вылазок",
-      desc = "В вылазках напоминает использовать карту, если бафф не активен." },
-
     { header = "Оповещения" },
     { key = "leader",     name = "Лидер группы",   desc = "Крупный текст, когда тебе передали лидерство." },
     { key = "readybar",   name = "Полоса готовности", desc = "Полоса-таймер во время проверки готовности." },
@@ -681,6 +675,28 @@ local function CreateOptionsWindow()
             GameTooltip:Show()
         end)
         knowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        -- Галка «Открывать с профессией» — рядом с кнопкой (перенесена из окна
+        -- «Недельные знания»). Окно само открывается/закрывается с окном профессии.
+        local autoCB = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+        autoCB:SetSize(24, 24)
+        autoCB:SetPoint("LEFT", knowBtn, "RIGHT", 12, 0)
+        autoCB.Text:SetText("Открывать с профессией")
+        autoCB.Text:SetFontObject("GameFontHighlight")
+        autoCB:SetChecked(ns.db.knowledge.autoOpen and true or false)
+        autoCB:SetScript("OnClick", function(self)
+            ns.db.knowledge.autoOpen = self:GetChecked() and true or false
+        end)
+        autoCB:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Открывать с профессией", 1, 1, 1)
+            GameTooltip:AddLine("Окно «Недельные знания» само открывается вместе с" ..
+                " окном профессии и скрывается вместе с ним. Отдельно — кнопкой у" ..
+                " миникарты или командой " .. C("FFFF00", "/rsk") .. ".", 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        autoCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
         y = y - 6 - 26 - 12   -- ниже кнопки «Недельные знания…»
 
         -- Трактат: две галки (подпись в подсказке + пиксельное свечение).

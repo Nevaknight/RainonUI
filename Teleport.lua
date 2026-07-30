@@ -78,7 +78,7 @@ local SetDungeonPortrait   -- (определяется ниже) иконка �
 -- -------------------------------------------------------------------------
 -- Постройка попапа + secure-кнопки (один раз, вне боя)
 -- -------------------------------------------------------------------------
-local POPUP_W, POPUP_H = 260, 122
+local POPUP_W, POPUP_H = 260, 150
 
 -- Телепорт на настоящем кулдауне (не GCD)? Спелл — статичный integer из таблицы,
 -- не секрет, читать безопасно.
@@ -160,6 +160,13 @@ local function BuildPopup()
     -- Заголовок «Телепорт» + круглый портрет в углу под иконку подземелья
     -- (по аналогии с окном профессии). Портрет НЕ прячем.
     if popup.SetTitle then popup:SetTitle("Телепорт") end
+    -- Заголовок центрируем по всему окну (шаблон смещает его из-за портрета слева).
+    local titleFS = (popup.TitleContainer and popup.TitleContainer.TitleText) or popup.TitleText
+    if titleFS then
+        titleFS:ClearAllPoints()
+        titleFS:SetPoint("TOP", popup, "TOP", 0, -6)
+        titleFS:SetJustifyH("CENTER")
+    end
     SetDungeonPortrait(nil)
     if popup.CloseButton then
         popup.CloseButton:SetScript("OnClick", function() HidePrompt() end)

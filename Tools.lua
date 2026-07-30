@@ -159,26 +159,97 @@ local function CreateRow(opts)
     return row
 end
 
--- ---- Стикер: большая иконка + подпись + таймер --------------------------
-local function CreateSticker(row, iconPath, label, size)
-    size = size or 200
-    local f = Mix(CreateFrame("Frame", nil, row))
-    f:SetSize(size, size + 30)
-    f.cellW, f.cellH = size, size + 30
+-- ---- Круг-счётчик (как у окна телепорта). Собран из двух круглых дисков
+-- (масками): золотой внешний + тёмный внутренний = чистый золотой ободок, без
+-- битых текстур-колец. Отдельный фрейм на ВЫСОКОЙ страте — рисуется ПОВЕРХ бокса
+-- (иначе рамка перекрывает круг). Возвращает FontString для цифр.
+local function AttachCounterCircle(parent, diameter)
+    local D = diameter or 50
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(D, D)
+    c:SetPoint("CENTER", parent, "TOPLEFT", 22, -18)   -- верхний-левый угол, внахлёст
+    c:SetFrameStrata("HIGH")                           -- поверх рамки бокса
+    c:SetFrameLevel((parent:GetFrameLevel() or 1) + 30)
+
+    -- Золотой внешний диск (круг через маску-портрет).
+    local gold = c:CreateTexture(nil, "ARTWORK")
+    gold:SetPoint("CENTER"); gold:SetSize(D, D)
+    gold:SetColorTexture(0.85, 0.65, 0.13, 1)
+    local m1 = c:CreateMaskTexture()
+    m1:SetPoint("CENTER"); m1:SetSize(D, D)
+    m1:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
+                  "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    gold:AddMaskTexture(m1)
+
+    -- Тёмный внутренний диск — оставляет золотой ободок по краю.
+    local dark = c:CreateTexture(nil, "OVERLAY")
+    dark:SetPoint("CENTER"); dark:SetSize(D - 7, D - 7)
+    dark:SetColorTexture(0.05, 0.05, 0.06, 1)
+    local m2 = c:CreateMaskTexture()
+    m2:SetPoint("CENTER"); m2:SetSize(D - 7, D - 7)
+    m2:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
+                  "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    dark:AddMaskTexture(m2)
+
+    -- Цифры — поверх дисков.
+    local fs = MakeText(c, 18, { 1, 0.9, 0.4 })
+    fs:SetDrawLayer("OVERLAY", 7)
+    fs:SetPoint("CENTER", c, "CENTER", 0, 0)
+    return fs
+end
+
+-- ---- Стикер (в стиле панели «RainonUI — Тестер»): бокс с заголовком-баром
+-- (в нём имя стикера) + КВАДРАТНОЕ прозрачное тело, в которое РОВНО (симметрично)
+-- вписан квадратный арт (без растяжения). Все стикеры на одном шаблоне
+-- (DefaultPanelFlatTemplate). У «Перерыва» единственное отличие — золотой
+-- круг-счётчик слева с таймером ПОВЕРХ бокса. Остальные — без цифр, гаснут сами.
+--   opts.portraitTimer = true  → круг-счётчик (только «Перерыв»).
+local function CreateSticker(row, iconPath, label, size, opts)
+    opts = opts or {}
+    size = size or 200          -- сторона КВАДРАТНОГО арта
+    local PAD = 6                -- равные поля вокруг арта
+
+    local f = Mix(CreateFrame("Frame", nil, row, "DefaultPanelFlatTemplate"))
+
+    -- Имя стикера — в заголовок-бар бокса (не отдельным текстом).
+    if f.SetTitle then f:SetTitle(label or "") end
+    local titleBar = f.TitleContainer
+    local titleFS = (titleBar and titleBar.TitleText) or f.TitleText
+    if titleFS then
+        titleFS:ClearAllPoints()
+        titleFS:SetPoint("TOP", f, "TOP", 0, -6)
+        titleFS:SetJustifyH("CENTER")
+    end
+
+    -- РЕАЛЬНАЯ высота заголовка-бара (у шаблона), чтобы арт встал ровно под ним.
+    local th = (titleBar and titleBar.GetHeight and titleBar:GetHeight()) or 0
+    if not th or th < 1 then th = 24 end
+
+    -- Габариты: тело квадратное (арт size×size + поля PAD со всех сторон),
+    -- сверху — заголовок-бар высотой th.
+    local W = size + PAD * 2
+    local H = th + size + PAD * 2
+    f:SetSize(W, H)
+    f.cellW, f.cellH = W, H
     f.row = row
     f:Hide()
 
+    -- КВАДРАТНЫЙ арт: цепляем к фактическому НИЗУ заголовка-бара (а не к верху
+    -- фрейма) — тогда он не съезжает при любой высоте бара; поля PAD равные.
     f.Icon = f:CreateTexture(nil, "ARTWORK")
     f.Icon:SetSize(size, size)
-    f.Icon:SetPoint("TOP")
+    if titleBar then
+        f.Icon:SetPoint("TOP", titleBar, "BOTTOM", 0, -PAD)
+    else
+        f.Icon:SetPoint("TOP", f, "TOP", 0, -(th + PAD))
+    end
     ns.SetIcon(f.Icon, iconPath)
 
-    f.Label = MakeText(f, 24)
-    f.Label:SetPoint("TOP", f.Icon, "BOTTOM", 0, -2)
-    f.Label:SetText(label or "")
-
-    f.Timer = MakeText(f, 40)
-    f.Timer:SetPoint("CENTER", f.Icon, "CENTER")
+    if opts.portraitTimer then
+        -- Только «Перерыв»: круг-счётчик слева поверх бокса, внутри — таймер.
+        f.Timer = AttachCounterCircle(f, 50)
+    end
+    -- У остальных f.Timer нет: авто-скрытие по self.expires (Activate(duration)).
 
     table.insert(row.items, f)
     return f
@@ -249,12 +320,13 @@ end
 local stickerRow  = CreateRow({ x = 0, y = 300, spacing = 2 })            -- ОПОВЕЩЕНИЯ - СТИКЕРЫ
 local textStack   = CreateRow({ x = 0, y = 80, spacing = 10,
                                 vertical = true, selfPoint = "TOP" })      -- ОПОВЕЩЕНИЯ - ТЕКСТ
-local consumRow   = CreateRow({ x = 0, y = 430, spacing = 4 })             -- Памятка для расходников
+-- (consumRow «Памятка расходников» и «Карта вылазок» вынесены в Архив/ 30.07.2026)
 
 -- =========================================================================
 -- СТИКЕРЫ
 -- =========================================================================
-local stBreak    = CreateSticker(stickerRow, MYICON .. "break.tga",      "ПЕРЕРЫВ")
+local stBreak    = CreateSticker(stickerRow, MYICON .. "break.tga",      "ПЕРЕРЫВ", nil,
+                                 { portraitTimer = true })  -- круг слева с таймером
 local stAllReady = CreateSticker(stickerRow, MYICON .. "allready.tga",   "ВСЕ ГОТОВЫ")
 local stFeast    = CreateSticker(stickerRow, MYICON .. "feast.tga",      "СЫТНАЯ ЕДА")
 local stFood     = CreateSticker(stickerRow, MYICON .. "food.tga",       "ОБЫЧНАЯ ЕДА")
@@ -471,61 +543,8 @@ ns.RegisterEvent("BAG_UPDATE_DELAYED", function() UpdateMageEat() end)
 -- НАПОМИНАНИЯ
 -- =========================================================================
 
--- Памятка для расходников (показывается на отдыхе)
-local CONSUMABLES = {
-    { key = "hp",     item = 211880, need = 5, icon = 134756 },  -- лечебное зелье
-    { key = "invis",  item = 191395, need = 5, icon = 134798 },  -- зелье невидимости
-    { key = "drums",  item = 193470, need = 5, icon = 4559221 }, -- барабаны
-    { key = "vantus", item = 226036, need = 1, icon = 4555025 }, -- вантийская руна
-    { key = "hammer", item = 132514, need = 2, icon = 132281 },  -- авто-молоток
-}
-for _, c in ipairs(CONSUMABLES) do
-    c.frame = CreateSticker(consumRow, c.icon, "", 64)
-    c.frame.Timer:SetFont(ns.FONT, 30, "OUTLINE")
-    c.frame.cellH = 64 + 6
-end
-registry.consumables = consumRow
-
-local function UpdateConsumables()
-    for _, c in ipairs(CONSUMABLES) do
-        local show = enabled("consumables") and IsResting()
-        if show then
-            local count = ns.GetItemCount(c.item)
-            if count < c.need then
-                c.frame.Label:SetText(tostring(count))
-                c.frame.active = true
-            else
-                c.frame.active = false
-            end
-        else
-            c.frame.active = false
-        end
-        c.frame.expires = nil
-    end
-    consumRow:Layout()
-end
-ns.RegisterEvent("PLAYER_UPDATE_RESTING", UpdateConsumables)
-ns.RegisterEvent("BAG_UPDATE_DELAYED", function() UpdateConsumables() end)
-
--- Карта вылазок (только в вылазках, difficultyID 208)
-local delveMap = CreateIconDisplay({ size = 64, x = 0, y = 200, icon = 1064187,
-                                     label = "Используй\nкарту", labelSize = 16 })
-registry.delvemap = delveMap
-local DELVE_ITEM, DELVE_AURA = 227784, 460831
-
-local function UpdateDelveMap()
-    local show = false
-    if enabled("delvemap") then
-        local _, _, difficultyID = GetInstanceInfo()
-        if difficultyID == 208 and ns.GetItemCount(DELVE_ITEM) > 0
-           and not ns.GetPlayerAura(DELVE_AURA) then
-            show = true
-        end
-    end
-    if show then delveMap:Activate(nil) else delveMap:Deactivate() end
-end
-ns.RegisterEvent("PLAYER_ENTERING_WORLD", UpdateDelveMap)
-ns.RegisterEvent("BAG_UPDATE_DELAYED", function() UpdateDelveMap() end)
+-- (АРХИВ 30.07.2026) «Памятка для расходников» и «Карта вылазок» вынесены в
+-- папку Архив/ (Архив/Consumables_and_DelveMap.lua) — доделаем позже.
 
 -- =========================================================================
 -- ОПОВЕЩЕНИЯ (тексты в фиксированных позициях)
@@ -800,6 +819,12 @@ local function ApplyTimerPosition()
 end
 
 CreateMover("combattimer", "Таймер боя", 90, 26, ApplyTimerPosition)
+
+-- Блок стикеров: двигаем весь ряд стикеров через мувер (в редакторе — как окно
+-- телепорта). Мувер-прокси размером с область стикеров.
+local function ApplyStickerPosition() PositionDisplay(stickerRow, "stickers") end
+ApplyStickerPosition()
+CreateMover("stickers", "Стикеры", 200, 200, ApplyStickerPosition)
 
 ns.RegisterMessage("RAINON_DB_READY", function()
     for _, m in pairs(movers) do m.ApplyPosition() end
@@ -1119,6 +1144,28 @@ WatchPlayerAuras(UpdateProfBuffs)
 ns.Tools = ns.Tools or {}
 ns.Tools.UpdateProfBuffs = UpdateProfBuffs
 
+-- ---- ТЕСТЕР СТИКЕРОВ (для отладки, панель /rstest) ----------------------
+-- Показать стикер по ключу на несколько секунд, минуя обычные условия. Ключи
+-- берём из registry. Список для панели — { {key=, label=}, ... }.
+local STICKER_TESTS = {
+    { key = "breaktimer", label = "Перерыв",         sound = SOUND.breaktimer },
+    { key = "allready",   label = "Все готовы",      sound = SOUND.allready },
+    { key = "feast",      label = "Сытная еда",      sound = SOUND.feast },
+    { key = "food",       label = "Обычная еда",     sound = SOUND.food },
+    { key = "racechange", label = "Смена расы",      sound = SOUND.racechange },
+    { key = "leader",     label = "Ты лидер группы", sound = SOUND.leader },
+    { key = "combatdrop", label = "Выход из боя" },
+}
+function ns.Tools.GetStickerTests() return STICKER_TESTS end
+function ns.Tools.TestSticker(key, dur)
+    local d = registry[key]
+    if d and d.Activate then pcall(d.Activate, d, dur or 5) end
+    -- проигрываем и звук стикера (как при реальном срабатывании)
+    for _, s in ipairs(STICKER_TESTS) do
+        if s.key == key and s.sound then ns.PlayFile(s.sound); break end
+    end
+end
+
 -- =========================================================================
 -- НЕДЕЛЬНЫЕ ЗНАНИЯ: недельный квест профессии + Талассийский трактат.
 -- Оба дают очки знаний и обновляются раз в неделю. Отслеживаем по флагу
@@ -1146,6 +1193,63 @@ local WEEKLY_KNOWLEDGE = {
     [393] = { treatiseQuest = 95136,                        -- Снятие шкур
               weekly = { 93710, 93711, 93712, 93713, 93714 } },
 }
+
+-- Ярмарка новолуния: у каждой профессии есть месячное задание, доступное во
+-- время Ярмарки (даёт очки знаний). Ключ — базовый ID линии профессии, значение
+-- — questID задания Ярмарки. ID выверены по WeeklyKnowledge (Data/Objectives/
+-- DarkmoonQuest.lua). Флаг сбрасывается сам при возвращении Ярмарки.
+local DARKMOON_QUEST = {
+    [171] = 29506,  -- Алхимия
+    [164] = 29508,  -- Кузнечное дело
+    [333] = 29510,  -- Наложение чар
+    [202] = 29511,  -- Инженерное дело
+    [182] = 29514,  -- Травничество
+    [773] = 29515,  -- Начертание
+    [755] = 29516,  -- Ювелирное дело
+    [165] = 29517,  -- Кожевничество
+    [186] = 29518,  -- Горное дело
+    [393] = 29519,  -- Снятие шкур
+    [197] = 29520,  -- Портняжное дело
+}
+
+-- Активна ли Ярмарка новолуния прямо сейчас (для автоскрытия столбца «Ярмарка»).
+-- Определяем по календарю игры: у праздника фиксированный eventID = 479. Календарь
+-- открываем сами в фоне (пользователю ничего открывать не нужно) — данные приходят
+-- асинхронно (CALENDAR_UPDATE_EVENT_LIST), тогда пересканим. В инстансах календарь
+-- может отдавать секреты — гвардим issecretvalue. Логика по образцу WeeklyKnowledge.
+local DARKMOON_EVENT_ID = 479
+local dmCalendarOpened, dmOpen = false, false
+
+local function ScanDarkmoonCalendar()
+    if not (C_Calendar and C_DateAndTime and C_DateAndTime.GetCurrentCalendarTime) then return end
+    local t = C_DateAndTime.GetCurrentCalendarTime()
+    if not (t and t.monthDay) then return end
+    if not dmCalendarOpened and t.month and C_Calendar.OpenCalendar then
+        if C_Calendar.SetAbsMonth then pcall(C_Calendar.SetAbsMonth, t.month, t.year) end
+        pcall(C_Calendar.OpenCalendar)
+        dmCalendarOpened = true
+    end
+    if not C_Calendar.GetNumDayEvents then return end
+    local num = C_Calendar.GetNumDayEvents(0, t.monthDay)
+    if not num then return end
+    local sec = issecretvalue
+    local open = false
+    for i = 1, num do
+        local ev = C_Calendar.GetDayEvent and C_Calendar.GetDayEvent(0, t.monthDay, i)
+        if ev and (not sec or not sec(ev.eventID)) and ev.eventID == DARKMOON_EVENT_ID then
+            open = true; break
+        end
+    end
+    dmOpen = open
+end
+ns.Tools.RefreshDarkmoon = ScanDarkmoonCalendar
+function ns.Tools.IsDarkmoonOpen() return dmOpen end
+
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", ScanDarkmoonCalendar)
+ns.RegisterEvent("CALENDAR_UPDATE_EVENT_LIST", function()
+    ScanDarkmoonCalendar()
+    if ns.Knowledge and ns.Knowledge.Refresh then ns.Knowledge:Refresh() end
+end)
 
 -- Общие недельные объективы (важны для всех профессий, не привязаны к одной).
 -- «Abundant Offerings» (89507) — недельный мета-квест Midnight; на первом
@@ -1191,6 +1295,7 @@ function ns.Tools.GetWeeklyKnowledge()
                     base = skillLine,
                     weeklyDone = weeklyDone,
                     treatiseDone = IsQuestDone(data.treatiseQuest),
+                    darkmoonDone = IsQuestDone(DARKMOON_QUEST[skillLine]),
                 }
             end
         end
@@ -1474,8 +1579,6 @@ function ns.Tools.OnToggle(key, state)
         return
     end
     if state then
-        if key == "consumables" then UpdateConsumables() end
-        if key == "delvemap" then UpdateDelveMap() end
         if key == "prof_phial" or key == "prof_essence" then UpdateProfBuffs() end
         if key == "curr_moxie" then UpdateMoxie() end
         if key == "bonusroll" then ApplyBonusAll() end
@@ -1492,12 +1595,7 @@ function ns.Tools.OnToggle(key, state)
     elseif display.Hide then
         display:Hide()
     end
-    if key == "consumables" then UpdateConsumables() end
 end
-
-ns.RegisterMessage("RAINON_DB_READY", function()
-    UpdateConsumables()
-end)
 
 -- =========================================================================
 -- ЗВУК ВОСКРЕШЕНИЯ: когда на тебя применили воскрешение (появилось окно
