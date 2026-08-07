@@ -146,6 +146,15 @@ local SPECIAL = {
             _G.BossBanner:UnregisterAllEvents()
         end
     end,
+    raidwarning = function()
+        -- Скрываем крупный текст рейдового объявления по центру: снимаем событие
+        -- с RaidWarningFrame. Звук на 12.0 играет отдельная система (C_Sound),
+        -- MuteSoundFile его не берёт — поэтому убираем только текст, это работает.
+        -- RaidWarningFrame не защищён — тэйнта нет.
+        if _G.RaidWarningFrame then
+            _G.RaidWarningFrame:UnregisterEvent("CHAT_MSG_RAID_WARNING")
+        end
+    end,
 }
 
 -- Обратные действия для «особых» ключей — чтобы снятие галки возвращало всё
@@ -165,6 +174,11 @@ local SPECIAL_UNDO = {
     lootHide = function()
         if AlertFrame then
             AlertFrame:RegisterEvent("SHOW_LOOT_TOAST")
+        end
+    end,
+    raidwarning = function()
+        if _G.RaidWarningFrame then
+            _G.RaidWarningFrame:RegisterEvent("CHAT_MSG_RAID_WARNING")
         end
     end,
     -- bossbanner: у баннера много событий — надёжнее вернуть через /reload.

@@ -26,18 +26,19 @@ local MYSOUND = "Interface\\AddOns\\RainonUI\\Media\\Sounds\\"
 local MYICON  = "Interface\\AddOns\\RainonUI\\Media\\Icons\\"
 
 local SOUND = {
-    allready     = MYSOUND .. "allready.ogg",     -- «Все готовы»
-    breaktimer   = MYSOUND .. "break.ogg",        -- «Перерыв» (свой звук!)
-    feast        = MYSOUND .. "feast.ogg",        -- сытная еда
-    food         = MYSOUND .. "food.ogg",         -- обычная еда
-    racechange   = MYSOUND .. "racechange.ogg",   -- смена расы
-    repair       = MYSOUND .. "repair.ogg",       -- ремонт
-    cauldron     = MYSOUND .. "cauldron.ogg",     -- котёл
-    mail         = MYSOUND .. "mail.ogg",         -- почта
-    healthstones = MYSOUND .. "healthstones.ogg", -- камни здоровья
-    magetable    = MYSOUND .. "magetable.ogg",    -- стол мага
-    summon       = MYSOUND .. "summon.ogg",       -- шкаф сумона
-    leader       = MYSOUND .. "leader.ogg",       -- лидер группы
+    -- Пути к файлам после перехода на единый формат RainonUI_*.ogg (1.4.3).
+    allready     = MYSOUND .. "RainonUI_All_ready.ogg",           -- «Все готовы»
+    breaktimer   = MYSOUND .. "break.ogg",                        -- «Перерыв» (свой звук!)
+    feast        = MYSOUND .. "RainonUI_Food_Hearty_Well_Fed.ogg",-- сытная еда
+    food         = MYSOUND .. "RainonUI_Food.ogg",               -- обычная еда
+    racechange   = MYSOUND .. "RainonUI_Change_Race.ogg",        -- смена расы
+    repair       = MYSOUND .. "RainonUI_Repair.ogg",             -- ремонт
+    cauldron     = MYSOUND .. "RainonUI_Boiler.ogg",             -- котёл
+    mail         = MYSOUND .. "RainonUI_Mail_Box.ogg",           -- почта
+    healthstones = MYSOUND .. "RainonUI_Health_Stones.ogg",      -- камни здоровья
+    magetable    = MYSOUND .. "RainonUI_Mage_table.ogg",         -- стол мага
+    summon       = MYSOUND .. "RainonUI_Ritual_of_Summoning.ogg",-- шкаф сумона
+    leader       = MYSOUND .. "RainonUI_Lead_group.ogg",         -- лидер группы
 }
 
 local function enabled(key)
@@ -1144,6 +1145,21 @@ WatchPlayerAuras(UpdateProfBuffs)
 ns.Tools = ns.Tools or {}
 ns.Tools.UpdateProfBuffs = UpdateProfBuffs
 
+-- Тест полосы готовности (для тест-панели): показать её на N секунд, как при
+-- реальной проверке готовности, но без самой проверки. (readyBar — upvalue выше.)
+function ns.Tools.TestReadyBar(duration)
+    duration = tonumber(duration) or 8
+    readyBar:SetMinMaxValues(0, duration)
+    readyBar.finish = GetTime() + duration
+    readyBar:SetScript("OnUpdate", function(self)
+        local remain = self.finish - GetTime()
+        if remain <= 0 then self:SetScript("OnUpdate", nil); self:Hide(); return end
+        self:SetValue(remain)
+        self.Text:SetText(ns.FormatSeconds(remain))
+    end)
+    readyBar:Show()
+end
+
 -- ---- ТЕСТЕР СТИКЕРОВ (для отладки, панель /rstest) ----------------------
 -- Показать стикер по ключу на несколько секунд, минуя обычные условия. Ключи
 -- берём из registry. Список для панели — { {key=, label=}, ... }.
@@ -1218,29 +1234,39 @@ local DARKMOON_QUEST = {
 -- асинхронно (CALENDAR_UPDATE_EVENT_LIST), тогда пересканим. В инстансах календарь
 -- может отдавать секреты — гвардим issecretvalue. Логика по образцу WeeklyKnowledge.
 local DARKMOON_EVENT_ID = 479
-local dmCalendarOpened, dmOpen = false, false
+local dmCalendarOpened, dmOpen, dmScanning = false, false, false
 
 local function ScanDarkmoonCalendar()
+    -- Защита от повторного входа: C_Calendar.SetAbsMonth СИНХРОННО шлёт
+    -- CALENDAR_UPDATE_EVENT_LIST, на которое мы же и подписаны — без гварда это
+    -- уходило в бесконечную рекурсию (C stack overflow), особенно вместе с другими
+    -- аддонами-сканерами календаря (WeeklyKnowledge и т.п.).
+    if dmScanning then return end
     if not (C_Calendar and C_DateAndTime and C_DateAndTime.GetCurrentCalendarTime) then return end
     local t = C_DateAndTime.GetCurrentCalendarTime()
     if not (t and t.monthDay) then return end
+
+    dmScanning = true
     if not dmCalendarOpened and t.month and C_Calendar.OpenCalendar then
+        dmCalendarOpened = true   -- ставим ДО вызовов, иначе синхронное событие войдёт повторно
         if C_Calendar.SetAbsMonth then pcall(C_Calendar.SetAbsMonth, t.month, t.year) end
         pcall(C_Calendar.OpenCalendar)
-        dmCalendarOpened = true
     end
-    if not C_Calendar.GetNumDayEvents then return end
-    local num = C_Calendar.GetNumDayEvents(0, t.monthDay)
-    if not num then return end
-    local sec = issecretvalue
-    local open = false
-    for i = 1, num do
-        local ev = C_Calendar.GetDayEvent and C_Calendar.GetDayEvent(0, t.monthDay, i)
-        if ev and (not sec or not sec(ev.eventID)) and ev.eventID == DARKMOON_EVENT_ID then
-            open = true; break
+    if C_Calendar.GetNumDayEvents then
+        local num = C_Calendar.GetNumDayEvents(0, t.monthDay)
+        if num then
+            local sec = issecretvalue
+            local open = false
+            for i = 1, num do
+                local ev = C_Calendar.GetDayEvent and C_Calendar.GetDayEvent(0, t.monthDay, i)
+                if ev and (not sec or not sec(ev.eventID)) and ev.eventID == DARKMOON_EVENT_ID then
+                    open = true; break
+                end
+            end
+            dmOpen = open
         end
     end
-    dmOpen = open
+    dmScanning = false
 end
 ns.Tools.RefreshDarkmoon = ScanDarkmoonCalendar
 function ns.Tools.IsDarkmoonOpen() return dmOpen end
@@ -1608,27 +1634,159 @@ end
 -- и звуки любых других аддонов, зарегистрированных в общей медиатеке. Выбор
 -- хранится по ИМЕНИ звука (строка), а не по индексу.
 -- =========================================================================
-local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
-local LSM_SOUND = LSM and ((LSM.MediaType and LSM.MediaType.SOUND) or "sound") or "sound"
+-- LSM резолвим ЛЕНИВО (не один раз при загрузке файла): если медиатека ещё не
+-- готова в момент загрузки Tools.lua или её подгружает другой аддон позже —
+-- всё равно подхватим её при первом обращении (открытие настроек и т.д.).
+-- Иначе список «схлопывался» в 3 запасных звука, если LSM не успела к загрузке.
+local LSM_SOUND = "sound"
+-- Наши звуки: голоса Рейнона (.ogg) + горсть стандартных игровых (FileDataID).
+local OUR_SOUNDS = {
+    { "RainonUI: Boss Feed (Alice)", MYSOUND .. "RainonUI_Boss_Feed.ogg" },
+    { "RainonUI: Patty Cake (Ладушки) (Alice)", MYSOUND .. "RainonUI_Patty_Cake.ogg" },
+    { "RainonUI: Агро (Alice)", MYSOUND .. "RainonUI_Agro.ogg" },
+    { "RainonUI: Аддсы (Alice)", MYSOUND .. "RainonUI_Adds.ogg" },
+    { "RainonUI: Антимагическая зона (Alice)", MYSOUND .. "RainonUI_Anti_Magic_Zone.ogg" },
+    { "RainonUI: Антимагическая зона (англ.) (Alice)", MYSOUND .. "RainonUI_Anti_Magic_Zone_Eng.ogg" },
+    { "RainonUI: АоЕ (Alice)", MYSOUND .. "RainonUI_AoE.ogg" },
+    { "RainonUI: Барьер (Alice)", MYSOUND .. "RainonUI_Barrier.ogg" },
+    { "RainonUI: Бей (Alice)", MYSOUND .. "RainonUI_Hit.ogg" },
+    { "RainonUI: Берсерк (Alice)", MYSOUND .. "RainonUI_Berserk.ogg" },
+    { "RainonUI: Благословение жертвенности (Alice)", MYSOUND .. "RainonUI_Blessing_of_Sacrifice.ogg" },
+    { "RainonUI: Благословение защиты (Alice)", MYSOUND .. "RainonUI_Blessing_of_Protection.ogg" },
+    { "RainonUI: Благословение свободы (Alice)", MYSOUND .. "RainonUI_Blessing_of_Freedom.ogg" },
+    { "RainonUI: Бомбардировка (Alice)", MYSOUND .. "RainonUI_Bombardment.ogg" },
+    { "RainonUI: Бомбы (Alice)", MYSOUND .. "RainonUI_Bombs.ogg" },
+    { "RainonUI: Босс (Alice)", MYSOUND .. "RainonUI_Boss.ogg" },
+    { "RainonUI: Босс уязвим (Alice)", MYSOUND .. "RainonUI_Boss_Vulnerable.ogg" },
+    { "RainonUI: Бочка (Alice)", MYSOUND .. "RainonUI_Barrel.ogg" },
+    { "RainonUI: Вампирические объятия (Alice)", MYSOUND .. "RainonUI_Vampiric_Embrace.ogg" },
+    { "RainonUI: Внимание (Alice)", MYSOUND .. "RainonUI_Attention.ogg" },
+    { "RainonUI: Волна (Alice)", MYSOUND .. "RainonUI_Wave.ogg" },
+    { "RainonUI: Все готовы (Alice)", MYSOUND .. "RainonUI_All_ready.ogg" },
+    { "RainonUI: Выходи (Alice)", MYSOUND .. "RainonUI_Go_out.ogg" },
+    { "RainonUI: Героизм (Alice)", MYSOUND .. "RainonUI_Heroism.ogg" },
+    { "RainonUI: Дебафф спал (Alice)", MYSOUND .. "RainonUI_Debuff_disappeared.ogg" },
+    { "RainonUI: Дух-хранитель (Alice)", MYSOUND .. "RainonUI_Guardian_Spirit.ogg" },
+    { "RainonUI: Дыхание (Alice)", MYSOUND .. "RainonUI_Breath.ogg" },
+    { "RainonUI: Еда (Alice)", MYSOUND .. "RainonUI_Food.ogg" },
+    { "RainonUI: Железная кора (Alice)", MYSOUND .. "RainonUI_Ironbark.ogg" },
+    { "RainonUI: Замедление времени (Alice)", MYSOUND .. "RainonUI_Time_Dilation.ogg" },
+    { "RainonUI: Зелье (Alice)", MYSOUND .. "RainonUI_Potion.ogg" },
+    { "RainonUI: Зелёный (Overlord)", MYSOUND .. "RainonUI_Green.ogg" },
+    { "RainonUI: Зефир (Alice)", MYSOUND .. "RainonUI_Zephyr.ogg" },
+    { "RainonUI: Зефир (англ.) (Alice)", MYSOUND .. "RainonUI_Zephyr_Eng.ogg" },
+    { "RainonUI: Иди в портал (Alice)", MYSOUND .. "RainonUI_Go_to_portal.ogg" },
+    { "RainonUI: Идите в ближний бой (Alice)", MYSOUND .. "RainonUI_Come_to_Melee.ogg" },
+    { "RainonUI: Идите к боссу (Alice)", MYSOUND .. "RainonUI_Come_to_the_Boss.ogg" },
+    { "RainonUI: Камни здоровья (Alice)", MYSOUND .. "RainonUI_Health_Stones.ogg" },
+    { "RainonUI: Каст (Alice)", MYSOUND .. "RainonUI_Cast.ogg" },
+    { "RainonUI: Каст контроля (Alice)", MYSOUND .. "RainonUI_Cast_CC.ogg" },
+    { "RainonUI: Каст — перебей (Alice)", MYSOUND .. "RainonUI_Cast_Kick.ogg" },
+    { "RainonUI: Каст — перебей босса (Alice)", MYSOUND .. "RainonUI_Cast_Kick_Boss.ogg" },
+    { "RainonUI: Клив (Alice)", MYSOUND .. "RainonUI_Cleave.ogg" },
+    { "RainonUI: Клинки фазы (TWW) (Alice)", MYSOUND .. "RainonUI_TWW_Phase_Blades.ogg" },
+    { "RainonUI: Кокон жизни (Alice)", MYSOUND .. "RainonUI_Life_Cocoon.ogg" },
+    { "RainonUI: Коричневый (Overlord)", MYSOUND .. "RainonUI_Brown.ogg" },
+    { "RainonUI: Котёл (Alice)", MYSOUND .. "RainonUI_Boiler.ogg" },
+    { "RainonUI: Красный (Overlord)", MYSOUND .. "RainonUI_Red.ogg" },
+    { "RainonUI: Крик (Alice)", MYSOUND .. "RainonUI_Scream.ogg" },
+    { "RainonUI: Ледяной барьер (Alice)", MYSOUND .. "RainonUI_Ice_Barrier.ogg" },
+    { "RainonUI: Лети (Alice)", MYSOUND .. "RainonUI_Fly.ogg" },
+    { "RainonUI: Луч (Alice)", MYSOUND .. "RainonUI_Beam.ogg" },
+    { "RainonUI: Мана (Alice)", MYSOUND .. "RainonUI_Mana.ogg" },
+    { "RainonUI: Массовая невидимость (Alice)", MYSOUND .. "RainonUI_Mass_Invisibility.ogg" },
+    { "RainonUI: Мастерство ауры (Alice)", MYSOUND .. "RainonUI_Aura_Mastery.ogg" },
+    { "RainonUI: Наведение (misdirect) (Alice)", MYSOUND .. "RainonUI_Misdirection.ogg" },
+    { "RainonUI: Направление предков (Alice)", MYSOUND .. "RainonUI_Ancestral_Guidance.ogg" },
+    { "RainonUI: Немота (Alice)", MYSOUND .. "RainonUI_Silence.ogg" },
+    { "RainonUI: Ободряющий крик (Alice)", MYSOUND .. "RainonUI_Rallying_Cry.ogg" },
+    { "RainonUI: Оглушение (Alice)", MYSOUND .. "RainonUI_Stun.ogg" },
+    { "RainonUI: Отойди от игроков (Alice)", MYSOUND .. "RainonUI_Go_out_from_ppl.ogg" },
+    { "RainonUI: Пелена (Alice)", MYSOUND .. "RainonUI_Shroud.ogg" },
+    { "RainonUI: Перебей контроль (Alice)", MYSOUND .. "RainonUI_Kick_CC.ogg" },
+    { "RainonUI: Перебей крик (Alice)", MYSOUND .. "RainonUI_Scream_Kick.ogg" },
+    { "RainonUI: Перебей немотой (Alice)", MYSOUND .. "RainonUI_Silence_Kick.ogg" },
+    { "RainonUI: Перебей оглушением (Alice)", MYSOUND .. "RainonUI_Stun_Kick.ogg" },
+    { "RainonUI: Перебей страх (Alice)", MYSOUND .. "RainonUI_Fear_Kick.ogg" },
+    { "RainonUI: Перебей хил (Alice)", MYSOUND .. "RainonUI_Heal_Kick.ogg" },
+    { "RainonUI: Перебей щит (Alice)", MYSOUND .. "RainonUI_Shield_Kick.ogg" },
+    { "RainonUI: Перебей яд (Alice)", MYSOUND .. "RainonUI_Poison_Kick.ogg" },
+    { "RainonUI: Передай дебафф (Alice)", MYSOUND .. "RainonUI_Pass_it_on_Debuff.ogg" },
+    { "RainonUI: Перемотка (Alice)", MYSOUND .. "RainonUI_Rewind.ogg" },
+    { "RainonUI: Поглощение (Alice)", MYSOUND .. "RainonUI_Absorb.ogg" },
+    { "RainonUI: Подавление боли (Alice)", MYSOUND .. "RainonUI_Pain_Suppression.ogg" },
+    { "RainonUI: Поделись (Alice)", MYSOUND .. "RainonUI_Share.ogg" },
+    { "RainonUI: Почта (Alice)", MYSOUND .. "RainonUI_Mail_Box.ogg" },
+    { "RainonUI: Призыв (Alice)", MYSOUND .. "RainonUI_Summon.ogg" },
+    { "RainonUI: Призыв аддов (Alice)", MYSOUND .. "RainonUI_Adds_Summon.ogg" },
+    { "RainonUI: Провокация (Alice)", MYSOUND .. "RainonUI_Taunt.ogg" },
+    { "RainonUI: Провокация (оттолкни) (Alice)", MYSOUND .. "RainonUI_Taunt_push.ogg" },
+    { "RainonUI: Путин (Rainon)", MYSOUND .. "RainonUI_Putin.ogg" },
+    { "RainonUI: Разбегайтесь (Alice)", MYSOUND .. "RainonUI_Runaways.ogg" },
+    { "RainonUI: Развейся сам (Alice)", MYSOUND .. "RainonUI_Dispell_Yourself.ogg" },
+    { "RainonUI: Раздели дебафф (Alice)", MYSOUND .. "RainonUI_Share_Debuff.ogg" },
+    { "RainonUI: Разойдитесь (Alice)", MYSOUND .. "RainonUI_Spread.ogg" },
+    { "RainonUI: Ремонт (Alice)", MYSOUND .. "RainonUI_Repair.ogg" },
+    { "RainonUI: Ритуал призыва (Alice)", MYSOUND .. "RainonUI_Ritual_of_Summoning.ogg" },
+    { "RainonUI: Рывок (Alice)", MYSOUND .. "RainonUI_Charge.ogg" },
+    { "RainonUI: Сбей стрелы (Alice)", MYSOUND .. "RainonUI_Kick_Arrows.ogg" },
+    { "RainonUI: Священный оплот (Alice)", MYSOUND .. "RainonUI_Holy_Bulwark.ogg" },
+    { "RainonUI: Синий (Overlord)", MYSOUND .. "RainonUI_Blue.ogg" },
+    { "RainonUI: Смена расы (Alice)", MYSOUND .. "RainonUI_Change_Race.ogg" },
+    { "RainonUI: Смена танков (Alice)", MYSOUND .. "RainonUI_Tank_Switch.ogg" },
+    { "RainonUI: Смена фазы (Alice)", MYSOUND .. "RainonUI_Phase_change.ogg" },
+    { "RainonUI: Спасай Кактуса (Alice)", MYSOUND .. "RainonUI_Save_Kaktys.ogg" },
+    { "RainonUI: Стаки (Alice)", MYSOUND .. "RainonUI_Stacks.ogg" },
+    { "RainonUI: Стол мага (Alice)", MYSOUND .. "RainonUI_Mage_table.ogg" },
+    { "RainonUI: Страх (Alice)", MYSOUND .. "RainonUI_Fear.ogg" },
+    { "RainonUI: Стреляй (Alice)", MYSOUND .. "RainonUI_Shoot.ogg" },
+    { "RainonUI: Сытная еда (Alice)", MYSOUND .. "RainonUI_Food_Hearty_Well_Fed.ogg" },
+    { "RainonUI: Танковое комбо (Alice)", MYSOUND .. "RainonUI_Tank_Combo.ogg" },
+    { "RainonUI: Тащи паука (Alice)", MYSOUND .. "RainonUI_Drag_the_Spider.ogg" },
+    { "RainonUI: Толкай (Alice)", MYSOUND .. "RainonUI_Push.ogg" },
+    { "RainonUI: Тотем (Alice)", MYSOUND .. "RainonUI_Totem.ogg" },
+    { "RainonUI: Тотем духовной связи (Alice)", MYSOUND .. "RainonUI_Spirit_Link_Totem.ogg" },
+    { "RainonUI: Тотем духовной связи (англ.) (Alice)", MYSOUND .. "RainonUI_Spirit_Link_Totem_Eng.ogg" },
+    { "RainonUI: Тотем каменной кожи (Alice)", MYSOUND .. "RainonUI_Stoneskin_Totem.ogg" },
+    { "RainonUI: Ты лидер группы (Alice)", MYSOUND .. "RainonUI_Lead_group.ogg" },
+    { "RainonUI: Тьма (Alice)", MYSOUND .. "RainonUI_Darkness.ogg" },
+    { "RainonUI: Тьма (англ.) (Alice)", MYSOUND .. "RainonUI_Darkness_Eng.ogg" },
+    { "RainonUI: Убегай (Alice)", MYSOUND .. "RainonUI_Run_away.ogg" },
+    { "RainonUI: Угадайка (Alice)", MYSOUND .. "RainonUI_Guessing_Game.ogg" },
+    { "RainonUI: Уклоняйся (Alice)", MYSOUND .. "RainonUI_Dodge.ogg" },
+    { "RainonUI: Фаза луча (Alice)", MYSOUND .. "RainonUI_Beam_Phase.ogg" },
+    { "RainonUI: Фиксейт на тебе (Alice)", MYSOUND .. "RainonUI_Fixate_on_you.ogg" },
+    { "RainonUI: Хватит соакать (Alice)", MYSOUND .. "RainonUI_Stop_soak.ogg" },
+    { "RainonUI: Хил (Alice)", MYSOUND .. "RainonUI_Heal.ogg" },
+    { "RainonUI: Щит (Alice)", MYSOUND .. "RainonUI_Shield.ogg" },
+    { "RainonUI: Перерыв", SOUND.breaktimer },
+    { "RainonUI: Тревога", 567397 },  -- Raid Warning
+    { "RainonUI: Флаг",    569200 },  -- PVP Flag Taken
+    { "RainonUI: Беги (HoodWolf)", 552035 },  -- игровой голос
+}
+local OUR_NAME_SET = {}
+for _, s in ipairs(OUR_SOUNDS) do OUR_NAME_SET[s[1]] = true end
 
--- Регистрируем наши голоса + горсть стандартных игровых звуков в медиатеку
--- (по аналогии с BigWigs: свои .ogg по пути, игровые — по FileDataID).
-if LSM then
-    LSM:Register(LSM_SOUND, "RainonUI: Все готовы", SOUND.allready)
-    LSM:Register(LSM_SOUND, "RainonUI: Перерыв",    SOUND.breaktimer)
-    LSM:Register(LSM_SOUND, "RainonUI: Лидер",      SOUND.leader)
-    LSM:Register(LSM_SOUND, "RainonUI: Призыв",     SOUND.summon)
-    LSM:Register(LSM_SOUND, "RainonUI: Почта",      SOUND.mail)
-    LSM:Register(LSM_SOUND, "RainonUI: Ремонт",     SOUND.repair)
-    -- Стандартные игровые (FileDataID — не зависят от языка клиента).
-    LSM:Register(LSM_SOUND, "Тревога (Raid Warning)", 567397)
-    LSM:Register(LSM_SOUND, "Флаг захвачен",          569200)
-    LSM:Register(LSM_SOUND, "Беги! (голос)",          552035)
+local _lsm, _lsmRegistered
+local function GetLSM()
+    if not _lsm then
+        _lsm = (LibStub and LibStub("LibSharedMedia-3.0", true)) or nil
+        if _lsm then
+            LSM_SOUND = (_lsm.MediaType and _lsm.MediaType.SOUND) or "sound"
+        end
+    end
+    -- Наши звуки регистрируем один раз, как только LSM есть.
+    if _lsm and not _lsmRegistered then
+        _lsmRegistered = true
+        for _, s in ipairs(OUR_SOUNDS) do _lsm:Register(LSM_SOUND, s[1], s[2]) end
+    end
+    return _lsm
 end
 
 -- Полный список имён звуков для селектора: из медиатеки (наши + игровые +
 -- звуки других аддонов), отсортированный. Без библиотеки — минимальный запас.
 function ns.Tools.GetSoundNames()
+    local LSM = GetLSM()
     if LSM then
         local list = LSM:List(LSM_SOUND) or {}
         local names = {}
@@ -1639,6 +1797,38 @@ function ns.Tools.GetSoundNames()
     return { "RainonUI: Все готовы", "RainonUI: Лидер", "RainonUI: Призыв" }
 end
 
+-- Диагностика звука: печатает состояние медиатеки, что из аддонов загружено и
+-- какие звуки реально зарегистрированы (наши / чужие / примеры имён). Помогает
+-- понять, ПОЧЕМУ список короткий: не загрузилась либа? не загружен звуковой пак?
+function ns.Tools.SoundDiag()
+    local LSM = GetLSM()
+    local names = ns.Tools.GetSoundNames() or {}
+    local isLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+    local function ld(a) return (isLoaded and isLoaded(a)) and "да" or "нет" end
+
+    local mine, none, foreign = 0, 0, 0
+    local sample = {}
+    for _, n in ipairs(names) do
+        if OUR_NAME_SET[n] then mine = mine + 1
+        elseif n == "None" then none = none + 1
+        else foreign = foreign + 1 end
+    end
+    for i = 1, math.min(14, #names) do sample[i] = names[i] end
+
+    ns.Print("|cFFFFD100=== Диагностика звука ===|r")
+    ns.Print("LibSharedMedia: " .. (LSM and "ЕСТЬ" or "НЕТ") .. "  |  всего звуков: " .. #names)
+    ns.Print(("наши=%d, None=%d, ЧУЖИХ (паки/аддоны)=%d"):format(mine, none, foreign))
+    ns.Print("Загружено — BigWigs: " .. ld("BigWigs") .. ", DBM-Core: " .. ld("DBM-Core") ..
+        ", SharedMedia: " .. ld("SharedMedia"))
+    ns.Print("Примеры: " .. (table.concat(sample, ", ")))
+    if foreign == 0 then
+        ns.Print("|cFFFF5555Чужих звуков 0 — значит звуковой пак сейчас НЕ загружен/не зарегистрировал звуки. Это не RainonUI: любой аддон-пак пишет в ту же медиатеку, мы просто читаем её.|r")
+    end
+end
+
+SLASH_RAINONSOUND1 = "/rssound"
+SlashCmdList.RAINONSOUND = function() ns.Tools.SoundDiag() end
+
 -- Имя по умолчанию: сначала «Boss Warning» (точное совпадение, затем частичное
 -- без учёта регистра — имена в голосовых паках бывают с префиксами/суффиксами),
 -- потом наш голос, иначе первый не-"None".
@@ -1646,7 +1836,7 @@ function ns.Tools.DefaultSoundName()
     local names = ns.Tools.GetSoundNames()
     for _, n in ipairs(names) do if n == "Boss Warning" then return n end end
     for _, n in ipairs(names) do if n:lower():find("boss warning", 1, true) then return n end end
-    for _, n in ipairs(names) do if n == "RainonUI: Все готовы" then return n end end
+    for _, n in ipairs(names) do if n == "RainonUI: Все готовы (Alice)" then return n end end
     for _, n in ipairs(names) do if n ~= "None" then return n end end
     return names[1] or "None"
 end
@@ -1661,61 +1851,29 @@ local function CurrentNameForKey(key)
     if f then f[key] = def end
     return def
 end
--- Звук «меня воскресили» и звук «союзник кастует воскрешение».
-function ns.Tools.CurrentSoundName()         return CurrentNameForKey("resurrectSound") end
-function ns.Tools.CurrentResCastSoundName()  return CurrentNameForKey("resCastSound") end
+-- Звук «меня воскресили».
+function ns.Tools.CurrentSoundName() return CurrentNameForKey("resurrectSound") end
 
 local function PlaySoundByName(name)
+    local LSM = GetLSM()
     if not (name and LSM) then return end
     local media = LSM:Fetch(LSM_SOUND, name, true) -- true = без дефолта
     if media then pcall(PlaySoundFile, media, "Master") end -- принимает путь и FileDataID
 end
 ns.Tools.PlaySoundByName = PlaySoundByName
 
--- Предпросмотр для селекторов.
+-- Предпросмотр для селектора.
 ns.Tools.PlayResurrectPreview = function() PlaySoundByName(ns.Tools.CurrentSoundName()) end
-ns.Tools.PlayResCastPreview   = function() PlaySoundByName(ns.Tools.CurrentResCastSoundName()) end
 
--- (1) Когда воскрешают ТЕБЯ — окно «Воскреснуть».
+-- Когда воскрешают ТЕБЯ — окно «Воскреснуть».
 ns.RegisterEvent("RESURRECT_REQUEST", function()
     if ns.db and ns.db.features and ns.db.features.resurrectSoundOn then
         PlaySoundByName(ns.Tools.CurrentSoundName())
     end
 end)
 
--- (2) Когда КТО-ТО в группе/рейде кастует воскрешение (одиночное или массовое).
--- Ловим UNIT_SPELLCAST_SUCCEEDED от игроков группы/рейда и сверяем spellID со
--- списком известных воскрешений. spellID/unit в инстансах могут быть Secret —
--- в этом случае просто пропускаем (issecretvalue-гард).
-local _issecret = issecretvalue or function() return false end
-local RES_CAST_SPELLS = {
-    [2006]   = true, -- Жрец: Воскрешение
-    [212036] = true, -- Жрец: Массовое воскрешение
-    [7328]   = true, -- Паладин: Искупление
-    [212056] = true, -- Паладин: Отпущение (массовое)
-    [2008]   = true, -- Шаман: Дух предков
-    [50769]  = true, -- Друид: Оживление
-    [20484]  = true, -- Друид: Возрождение (боевое)
-    [115178] = true, -- Монах: Реинкарнация (Resuscitate)
-    [20707]  = true, -- Чернокнижник: Камень души
-    [61999]  = true, -- Рыцарь смерти: Поднять союзника (боевое)
-    [83968]  = true, -- Массовое воскрешение (общий)
-}
-ns.Tools.ResurrectionCastSpells = RES_CAST_SPELLS
-
-local function IsGroupUnit(unit)
-    if type(unit) ~= "string" then return false end
-    if unit == "player" then return true end
-    if unit:match("^party%d+$") or unit:match("^raid%d+$") then return true end
-    return false
-end
-
-ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
-    local f = ns.db and ns.db.features
-    if not (f and f.resCastSoundOn) then return end
-    if _issecret(unit) or _issecret(spellID) then return end
-    if not IsGroupUnit(unit) then return end
-    if RES_CAST_SPELLS[spellID] then
-        PlaySoundByName(ns.Tools.CurrentResCastSoundName())
-    end
-end)
+-- =========================================================================
+-- АРХИВ (2026): «Звук воскрешения союзника» (resCast) убран. В рейде эти события
+-- (UNIT_SPELLCAST_SUCCEEDED по спеллам воскрешения) не ловятся, поэтому фича не
+-- работала. Список спеллов и обработчик — в истории git. Вернёмся к ним позже.
+-- =========================================================================

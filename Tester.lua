@@ -44,6 +44,31 @@ local function CollectTests()
         })
     end
 
+    -- ── Диагностика ── (команды-проверки: сюда докидываем всё по типу /rssound)
+    local function slash(cmd) return function()
+        local name = cmd:gsub("^/", ""):upper()
+        if SlashCmdList and SlashCmdList[name] then SlashCmdList[name]("")
+        else ns.Print("команда " .. cmd .. " недоступна") end
+    end end
+    table.insert(ensure("Диагностика"), {
+        label = "Звук: анализ медиатеки",
+        fn = function()
+            if ns.Tools and ns.Tools.SoundDiag then ns.Tools.SoundDiag()
+            else ns.Print("диагностика звука недоступна") end
+        end,
+    })
+    table.insert(ensure("Диагностика"), { label = "Трактаты профессии", fn = slash("/rstreatise") })
+    table.insert(ensure("Диагностика"), { label = "Ярмарка Новолуния", fn = function()
+        if ns.Tools and ns.Tools.RefreshDarkmoon then
+            ns.Tools.RefreshDarkmoon()
+            ns.Print("Ярмарка сейчас: " .. ((ns.Tools.IsDarkmoonOpen and ns.Tools.IsDarkmoonOpen()) and "идёт" or "не идёт"))
+        end
+    end })
+    table.insert(ensure("Диагностика"), { label = "Полоса готовности", fn = function()
+        if ns.Tools and ns.Tools.TestReadyBar then ns.Tools.TestReadyBar(8)
+        else ns.Print("полоса готовности недоступна") end
+    end })
+
     -- ── Добавленные из других модулей ──
     for _, e in ipairs(extra) do
         table.insert(ensure(e.section), { label = e.label, fn = e.fn })

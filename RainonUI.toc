@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.4.1
+## Version: 1.4.2
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB
 ## X-Credits: LibEditMode © Adrian L Lange (p3lim)
@@ -27,3 +27,13 @@ Teleport.lua
 Integrations.lua
 Options.lua
 Tester.lua
+
+# =========================================================================
+# НОВЫЕ / ЭКСПЕРИМЕНТАЛЬНЫЕ МОДУЛИ.
+# Держим отдельным блоком: при ошибке любой строку можно закомментировать (#),
+# и основной аддон продолжит работать. Загружаются ПОСЛЕ ядра.
+# =========================================================================
+Abundance.lua
+SoundTracker.lua
+SoundMute.lua
+

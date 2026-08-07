@@ -83,6 +83,12 @@ ns.defaults = {
         resurrectSound = nil,       -- ИМЯ звука из LibSharedMedia (nil → дефолт)
         resCastSoundOn = false,     -- звук, когда КТО-ТО в группе/рейде кастует воскрешение
         resCastSound = nil,         -- ИМЯ звука из LibSharedMedia (nil → дефолт)
+        -- Звук при завершении события «Сбор изобилия» (дан-дан). 384 = плашка
+        -- «ЗАВЕРШЕНО / Событие завершено!». Рядом других событий нет, точного ID хватает.
+        abundanceSoundOn = true,     -- играть звук на завершении изобилия
+        abundanceSound = nil,        -- ИМЯ звука из LibSharedMedia (nil → дефолт)
+        abundanceEventToastID = 384, -- eventToastID плашки завершения
+        abundanceWidgetSet = nil,    -- uiWidgetSetID (запасной идентификатор)
         -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
         craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
         -- Режим «крестики скрытия»: на скрываемых элементах UI показываются

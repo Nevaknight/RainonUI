@@ -65,6 +65,9 @@ local HIDE_OPTIONS = {
       desc = "Полоса заклинаний цели." },
     { key = "blizzdbm",        name = "Босс сообщения на экране",
       desc = "Blizzard оповещения о способностях босса." },
+    { key = "raidwarning",     name = "Рейдовые объявления",
+      desc = "Скрывает крупный текст-предупреждение по центру экрана (Raid Warning). " ..
+             "Строка объявления в чате остаётся." },
     { key = "talkinghead",     name = "Говорящая голова",
       desc = "Окно с говорящим персонажем и репликами." },
     { key = "actionbutton",    name = "Обводка кнопки действия",
@@ -222,6 +225,32 @@ local MACRO_ROWS = {
                body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Жертвенное благословение" },
         eu = { name = "1.4_RainonUI", label = "Blessing of Sacrifice",
                body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Sacrifice" },
+    },
+    {
+        icon = 524354, -- Божественный щит (+ Длань расплаты): бабл + таунт
+        desc = "Первое нажатие — Божественный щит и провокация (Длань расплаты)," ..
+               " второе нажатие — снимает Божественный щит.",
+        ru = { name = "1.5_RainonUI", label = "Бабл + таунт",
+               body = "#showtooltip\n/cast Божественный щит\n/cast Длань расплаты\n/cancelaura Божественный щит" },
+        eu = { name = "1.6_RainonUI", label = "Bubble + taunt",
+               body = "#showtooltip\n/cast Divine Shield\n/cast Длань расплаты\n/cancelaura Divine Shield" },
+    },
+    {
+        icon = 135875, -- Гнев карателя (крылья) + верхний тринкет
+        desc = "Крылья (Гнев карателя) и верхний тринкет (слот 13) одним нажатием.",
+        ru = { name = "1.7_RainonUI", label = "Крылья + тринкет",
+               body = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13" },
+        eu = { name = "1.8_RainonUI", label = "Wings + trinket",
+               body = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13" },
+    },
+    {
+        icon = 135964, -- Благословение защиты
+        desc = "Накладывает Благословение защиты на союзника под курсором" ..
+               " (наведение на рамку или модель игрока), если он жив; иначе — на текущую цель.",
+        ru = { name = "1.9_RainonUI", label = "Благословение защиты",
+               body = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Благословение защиты" },
+        eu = { name = "1.10_RainonUI", label = "Blessing of Protection",
+               body = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Protection" },
     },
 }
 
@@ -419,56 +448,132 @@ local function MakeDropdown(parent, width, get, set, options)
     return btn
 end
 
--- Селектор со стрелками ◀ [текст] ▶ (как в «Параметры → Звук»): стрелки
--- листают список, клик по центру — предпросмотр. options = { {text=,value=}, ... }
+-- Селектор со стрелками ◀ [текст] ▶ в новом «боксовом» стиле Blizzard
+-- (атлас common-dropdown-*, как в «Параметры → Звук»): стрелки листают
+-- список, клик по центру — меню/предпросмотр. options = { {text=,value=}, ... }
 local function MakeArrowSelector(parent, width, get, set, options, onPreview, height)
     local H = height or 24
     local AR = H - 2 -- размер стрелок и высота центральной кнопки
     local holder = CreateFrame("Frame", nil, parent)
     holder:SetSize(width, H)
 
-    local left = CreateFrame("Button", nil, holder)
-    left:SetSize(AR, AR)
+    -- Берём существующий атлас из кандидатов (защита от переименований клиента).
+    local function hasAtlas(n)
+        return n and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(n) ~= nil
+    end
+    local function pick(...)
+        for i = 1, select("#", ...) do
+            local n = select(i, ...)
+            if hasAtlas(n) then return n end
+        end
+        return (...)
+    end
+    -- Стрелки-степперы (как IncrementButton в «Параметрах»).
+    local BOX_N = pick("common-dropdown-c-button")
+    local BOX_H = pick("common-dropdown-c-button-hover-2", "common-dropdown-c-button-hover-1")
+    local BOX_P = pick("common-dropdown-c-button-pressed", BOX_H)
+    -- Центр — поле дропдауна: свой фон, а ховер — как у дропдауна Blizzard.
+    local BG_N = pick("common-dropdown-c-bg", BOX_N)
+    local BG_H = pick("common-dropdown-c-button-hover-1", "common-dropdown-c-button-hover-2", BOX_H)
+    local ICON_NEXT = pick("common-dropdown-icon-next")
+
+    -- Ставит иконку из атласа. mirror=true → горизонтально отражает: для ЛЕВОЙ
+    -- стрелки берём тот же атлас, что у правой, и зеркалим — вид полностью
+    -- идентичен правой, только смотрит влево.
+    local function SetIcon(tex, atlasName, mirror, fallbackPath)
+        if hasAtlas(atlasName) then
+            if mirror then
+                local info = C_Texture.GetAtlasInfo(atlasName)
+                tex:SetTexture(info.file or info.filename or info.fileDataID)
+                tex:SetTexCoord(info.rightTexCoord, info.leftTexCoord,
+                                info.topTexCoord, info.bottomTexCoord)
+            else
+                tex:SetAtlas(atlasName)
+            end
+        elseif fallbackPath then
+            tex:SetTexture(fallbackPath)
+        end
+    end
+
+    -- Одна стрелка-бокс: фон-атлас + иконка; ховер/нажатие меняют фон.
+    local function MakeBoxArrow(iconAtlas, mirror, fallbackPath)
+        local b = CreateFrame("Button", nil, holder)
+        b:SetSize(AR, AR)
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetAtlas(BOX_N)
+        local ic = b:CreateTexture(nil, "ARTWORK")
+        ic:SetSize(AR * 0.55, AR * 0.55)
+        ic:SetPoint("CENTER")
+        SetIcon(ic, iconAtlas, mirror, fallbackPath)
+        b:SetScript("OnEnter", function() bg:SetAtlas(BOX_H) end)
+        b:SetScript("OnLeave", function() bg:SetAtlas(BOX_N) end)
+        b:SetScript("OnMouseDown", function() bg:SetAtlas(BOX_P); ic:SetPoint("CENTER", 0, -1) end)
+        b:SetScript("OnMouseUp", function(self)
+            bg:SetAtlas(self:IsMouseOver() and BOX_H or BOX_N)
+            ic:SetPoint("CENTER", 0, 0)
+        end)
+        return b
+    end
+
+    -- Левая = зеркало правой (тот же ICON_NEXT, mirror=true) — одинаковый вид.
+    local left = MakeBoxArrow(ICON_NEXT, true, "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
     left:SetPoint("LEFT", holder, "LEFT", 0, 0)
-    left:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
-    left:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Down")
-    left:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Disabled")
 
-    local right = CreateFrame("Button", nil, holder)
-    right:SetSize(AR, AR)
+    local right = MakeBoxArrow(ICON_NEXT, false, "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
     right:SetPoint("RIGHT", holder, "RIGHT", 0, 0)
-    right:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
-    right:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
-    right:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Disabled")
 
-    local center = CreateFrame("Button", nil, holder, "UIPanelButtonTemplate")
+    -- Центр — тоже бокс нового стиля (как поле дропдауна) с текстом значения.
+    local center = CreateFrame("Button", nil, holder)
     center:SetPoint("LEFT", left, "RIGHT", 2, 0)
     center:SetPoint("RIGHT", right, "LEFT", -2, 0)
     center:SetHeight(AR)
+    local cbg = center:CreateTexture(nil, "BACKGROUND")
+    cbg:SetAllPoints()
+    cbg:SetAtlas(BG_N)
+    local ctext = center:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ctext:SetPoint("LEFT", 8, 0)
+    ctext:SetPoint("RIGHT", -8, 0)
+    ctext:SetJustifyH("CENTER")
+    ctext:SetWordWrap(false)
+    center:SetFontString(ctext)
+    center:SetScript("OnEnter", function() cbg:SetAtlas(BG_H) end)
+    center:SetScript("OnLeave", function() cbg:SetAtlas(BG_N) end)
 
+    -- options может быть таблицей ИЛИ функцией, возвращающей таблицу — тогда
+    -- список строится ЖИВЬЁМ при каждом обращении (звуки чужих аддонов могут
+    -- зарегистрироваться позже нашей загрузки — так мы всегда видим актуальный).
+    local function getOpts()
+        local o = (type(options) == "function") and options() or options
+        return o or {}
+    end
     local function CurIndex()
-        local v = get()
-        for i, o in ipairs(options) do if o.value == v then return i end end
+        local v, list = get(), getOpts()
+        for i, o in ipairs(list) do if o.value == v then return i end end
         return 1
     end
     local function Refresh()
-        local o = options[CurIndex()]
+        local list = getOpts()
+        local o = list[CurIndex()]
         center:SetText(o and o.text or "—")
     end
     local function Step(delta)
+        local list = getOpts()
+        if #list == 0 then return end
         local i = CurIndex() + delta
-        if i < 1 then i = #options elseif i > #options then i = 1 end
-        set(options[i].value)
+        if i < 1 then i = #list elseif i > #list then i = 1 end
+        set(list[i].value)
         Refresh()
-        if onPreview then onPreview(options[i].value) end
+        if onPreview then onPreview(list[i].value) end
     end
     left:SetScript("OnClick", function() Step(-1) end)
     right:SetScript("OnClick", function() Step(1) end)
     -- Клик по центру — выпадающий список всех вариантов (радио); выбор
     -- применяется и проигрывается. Стрелки при этом продолжают листать.
     center:SetScript("OnClick", function()
+        local list = getOpts()
         if not (MenuUtil and MenuUtil.CreateContextMenu) then
-            if onPreview then onPreview(options[CurIndex()].value) end
+            if onPreview then local o = list[CurIndex()]; if o then onPreview(o.value) end end
             return
         end
         MenuUtil.CreateContextMenu(center, function(_, root)
@@ -477,7 +582,7 @@ local function MakeArrowSelector(parent, width, get, set, options, onPreview, he
             if root.SetScrollMode then
                 root:SetScrollMode(GetScreenHeight() * 0.5)
             end
-            for _, o in ipairs(options) do
+            for _, o in ipairs(getOpts()) do
                 root:CreateRadio(o.text,
                     function() return get() == o.value end,
                     function()
@@ -854,11 +959,16 @@ local function CreateOptionsWindow()
 
         -- Крупный (1.5x) селектор звука по центру панели. applyFn получает имя.
         local function MakeSoundSelector(getName, applyFn, previewFn)
-            local names = (ns.Tools and ns.Tools.GetSoundNames and ns.Tools.GetSoundNames()) or {}
-            local opts = {}
-            for i, n in ipairs(names) do opts[i] = { text = n, value = n } end
-            if #opts == 0 then opts[1] = { text = "—", value = "None" } end
-            local sel = MakeArrowSelector(featuresPanel, 390, getName, applyFn, opts,
+            -- Список строим ЖИВЬЁМ при каждом обращении (функция) — чтобы звуки,
+            -- зарегистрированные чужими аддонами позже, всегда попадали в список.
+            local function optsFn()
+                local names = (ns.Tools and ns.Tools.GetSoundNames and ns.Tools.GetSoundNames()) or {}
+                local opts = {}
+                for i, n in ipairs(names) do opts[i] = { text = n, value = n } end
+                if #opts == 0 then opts[1] = { text = "—", value = "None" } end
+                return opts
+            end
+            local sel = MakeArrowSelector(featuresPanel, 390, getName, applyFn, optsFn,
                 function(v) applyFn(v); if previewFn then previewFn() end end, 34)
             sel:SetPoint("TOP", featuresPanel, "TOPLEFT", PANEL_W / 2, y)
             y = y - 42
@@ -878,33 +988,49 @@ local function CreateOptionsWindow()
             end,
             function() if ns.Tools and ns.Tools.PlayResurrectPreview then ns.Tools.PlayResurrectPreview() end end)
 
-        -- 2) Звук, когда кто-то в группе/рейде КАСТУЕТ воскрешение.
-        local cb2
-        cb2 = MakeCheck("resCastSoundOn", "Звук воскрешения союзника",
-            "Играет, когда кто-то в группе/рейде применяет заклинание воскрешения" ..
-            " (одиночное или массовое, напр. Искупление/Отпущение паладина).")
-        MakeSoundSelector(
-            function() return (ns.Tools and ns.Tools.CurrentResCastSoundName and ns.Tools.CurrentResCastSoundName()) or "None" end,
-            function(v)
-                ns.db.features.resCastSound = v
-                ns.db.features.resCastSoundOn = true
-                cb2:SetChecked(true)
-            end,
-            function() if ns.Tools and ns.Tools.PlayResCastPreview then ns.Tools.PlayResCastPreview() end end)
+        -- (АРХИВ) «Звук воскрешения союзника» убран — в рейде эти события не ловятся.
 
-        featuresPanel:SetHeight(featuresPanel:GetHeight() + 28 + 28 + 42 + 28 + 42 + 12)
+        -- === Секция «Изобилие» (тот же формат, что и «Воскрешение») ===
+        local ihdr = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        ihdr:SetPoint("TOPLEFT", 10, y)
+        ihdr:SetText(C("FFD100", "Изобилие"))
+        y = y - 28
+
+        local function AbundanceSoundName()
+            local v = ns.db.features.abundanceSound
+            if type(v) == "string" and v ~= "" then return v end
+            return (ns.Tools and ns.Tools.DefaultSoundName and ns.Tools.DefaultSoundName()) or "None"
+        end
+
+        local cbA
+        cbA = MakeCheck("abundanceSoundOn", "Звук изобилия",
+            "Играет при завершении события «Сбор изобилия» (дан-дан).")
+        MakeSoundSelector(
+            AbundanceSoundName,
+            function(v)
+                ns.db.features.abundanceSound = v
+                ns.db.features.abundanceSoundOn = true
+                cbA:SetChecked(true)
+            end,
+            function()
+                if ns.Tools and ns.Tools.PlaySoundByName then
+                    ns.Tools.PlaySoundByName(AbundanceSoundName())
+                end
+            end)
+
+        featuresPanel:SetHeight(featuresPanel:GetHeight() + 28 + 28 + 42 + 28 + 28 + 42 + 12)
     end
 
     -- Панель «Макросы»: «Создать ВСЕ» по центру + матрица [иконка | РУ | ЕУ]
     local macroPanel = CreateFrame("Frame", nil, container)
-    macroPanel:SetSize(520, 260)
+    macroPanel:SetSize(520, 380)
     macroPanel:SetPoint("TOPLEFT")
     do
         local info = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         info:SetPoint("TOPLEFT", 12, -10)
         info:SetPoint("TOPRIGHT", -12, -10)
         info:SetJustifyH("CENTER")
-        info:SetText("Создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") .. " макросах (префикс " ..
+        info:SetText("Кнопки указанные ниже создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") .. " макросах (префикс " ..
             C("FFD100", "1.x_RainonUI") .. "). " .. C("FFD100", "РУ") .. "/" .. C("FFD100", "ЕУ") ..
             " — одна способность на нужном языке клиента.\nПосле — " .. C("FFFF00", "/macro") ..
             ", перетащи на панель и замени " .. C("FFD100", "НИК_ИГРОКА") .. ".")
@@ -1054,6 +1180,15 @@ local function CreateOptionsWindow()
             C("FFFF00", "Ctrl+C") .. ".")
     end
 
+    -- Панель «Звуки» (приглушение) строит модуль SoundMute. Модуль лежит в
+    -- отдельном блоке .toc — если его отключить (#), вкладки просто не будет,
+    -- а всё окно продолжит работать как прежде.
+    local mutePanel
+    if ns.SoundMute and ns.SoundMute.BuildPanel then
+        mutePanel = ns.SoundMute.BuildPanel(container)
+        mutePanel:SetPoint("TOPLEFT")
+    end
+
     local PANELS = {
         { panel = hidePanel,
           intro = "Отметь элементы интерфейса, которые нужно скрыть." },
@@ -1064,10 +1199,14 @@ local function CreateOptionsWindow()
         { panel = featuresPanel,
           intro = "Удобства: телепорт, перезагрузка в игровом меню, метка танка, звук воскрешения." },
         { panel = macroPanel,
-          intro = "Паладин: баф освящения оружия и готовые макросы (РУ/ЕУ)." },
+          intro = C(COLOR.PALADIN, "Паладин") },
         { panel = linksPanel,
           intro = "Полезные ссылки автора: библиотека аддонов и поддержка." },
     }
+    if mutePanel then
+        PANELS[#PANELS + 1] = { panel = mutePanel,
+            intro = "Приглушение отдельных звуков. Действует на всех персонажей аккаунта." }
+    end
 
     local tabs = {}
     local function SelectTab(index)
@@ -1156,6 +1295,9 @@ local function CreateOptionsWindow()
     MakeTab(4, 1030099, "Удобства")
     MakeTab(5, "Interface\\Icons\\ClassIcon_Paladin", "Паладин")
     MakeTab(6, "Interface\\Icons\\INV_Misc_Book_09", "Ссылки")
+    if mutePanel then
+        MakeTab(7, 252188, "Звуки")
+    end
 
     -- Кнопка перезагрузки: квадратик у левого нижнего угла окна,
     -- в том же стиле, что и боковые вкладки

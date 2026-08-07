@@ -223,8 +223,8 @@ local function CreateMinimapButton()
             end
         else
             if shift then
-                -- Shift+ЛКМ — заглушка под будущее меню
-                OpenStubMenu(self, "Shift + ЛКМ")
+                -- Shift+ЛКМ — тестовое окно (панель тестов /rstest)
+                if ns.Tester and ns.Tester.Toggle then ns.Tester.Toggle() end
             elseif SlashCmdList and SlashCmdList.RAINONUI then
                 -- ЛКМ — главное меню настроек аддона (/rs)
                 SlashCmdList.RAINONUI("")
@@ -252,7 +252,7 @@ local function CreateMinimapButton()
         end
         Row("ЛКМ", "меню настроек аддона.")
         Row("ПКМ", "окно знаний и зарядов.")
-        Row("Shift + ЛКМ", "меню (скоро).")
+        Row("Shift + ЛКМ", "тестовое окно.")
         Row("Shift + ПКМ", "меню (скоро).")
         Row("Удерживайте ЛКМ", "двигать кнопку.")
         GameTooltip:Show()

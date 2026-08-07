@@ -1,5 +1,13 @@
 # RainonUI — Changelog
 
+## 1.4.2
+
+* New "Sounds" tab in the settings window to mute specific sound effects, split into "General" (minimap ping) and "Paladin" (Shield of the Righteous, Avenger's Shield, Blessed Hammer). Choices persist between sessions and re-apply on login, with a "Restore all sounds" button. Muting uses the game's own MuteSoundFile, so it only affects the selected files.
+* New "Raid warnings" toggle in the Scripts tab that hides the large centered Raid Warning text on screen (the chat line stays). On 12.0 the raid-warning sound is played through the new C_Sound system and can't be muted from an addon, so this option hides the on-screen text only.
+* New "Abundance" section in the Comforts tab: play a sound of your choice when an Abundance event finishes, with the same sound picker used elsewhere.
+* Added a "Sound tracker" diagnostic window (/rstrack, or the Diagnostics test panel) that lists sounds played through the interface so you can identify them; the window is wider for readability.
+* Cleanup: removed leftover experimental modules and dead code for a leaner release.
+
 ## 1.4.1
 
 * Knowledge window: new "Darkmoon Faire" column that tracks each character's monthly Darkmoon profession quest, toggleable from the "Columns" button. It auto-hides while the faire isn't running and reappears on its own during the event (detected from the in-game calendar — no need to open the calendar yourself).
