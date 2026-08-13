@@ -95,6 +95,8 @@ local HIDE_OPTIONS = {
       desc = "Виджет событий по центру экрана: «Название подземелья» на старте ключа, фазы сценариев и аналогичные события." },
     { key = "dailyquest", name = "Задачи",
       desc = "Виджет по центру экрана, когда вы получаете «Локальное задание» и аналогичные события." },
+    { key = "factiontoast", name = "Открытие фракции",
+      desc = "Плашка открытия основной фракции («Preyhunter's Journey» / «Путь открыт») — MajorFactionUnlockToast." },
     { key = "lootHide",   name = "Лут по центру",
       desc = "Персональный список добычи по центру экрана." },
     { key = "ZoneHide",   name = "Название зоны",
@@ -249,7 +251,7 @@ local MACRO_GROUPS = {
                 icon = 135875, name = "Крылья + тринкет",
                 variants = {
                     { label = { ru = "Крылья+тринкет", eu = "Wings+trinket" },
-                      desc = "Гнев карателя и верхний тринкет на одной кнопке.",
+                      desc = "Одним нажатием — крылья (Гнев карателя, наступательный кулдаун) и верхний тринкет (слот 13). #showtooltip Гнев карателя фиксирует иконку/кулдаун крыльев на кнопке. Слот 13 = верхний аксессуар (14 был бы нижний).",
                       ru = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13",
                       eu = "#showtooltip Avenging Wrath\n/cast Avenging Wrath\n/use 13" },
                 },
@@ -495,7 +497,7 @@ local function BuildChecklist(scrollParent, options, getValue, onToggle)
             t:SetText(opt.text)
             rows[#rows + 1] = { kind = "text", opt = opt, fs = t }
         else
-            local cb = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+            local cb = ns.MakeCheckButton(content)
             cb:SetSize(26, 26)
             cb.Text:SetText(opt.name)
             cb.Text:SetFontObject("GameFontHighlight")
@@ -640,9 +642,11 @@ local function MakeArrowSelector(parent, width, get, set, options, onPreview, he
     local BOX_N = pick("common-dropdown-c-button")
     local BOX_H = pick("common-dropdown-c-button-hover-2", "common-dropdown-c-button-hover-1")
     local BOX_P = pick("common-dropdown-c-button-pressed", BOX_H)
-    -- Центр — поле дропдауна: свой фон, а ховер — как у дропдауна Blizzard.
-    local BG_N = pick("common-dropdown-c-bg", BOX_N)
-    local BG_H = pick("common-dropdown-c-button-hover-1", "common-dropdown-c-button-hover-2", BOX_H)
+    -- Центр — то же ЗОЛОТОЕ поле, что и боковые стрелки. Раньше брали тёмный
+    -- `common-dropdown-c-bg` — из-за него центр выглядел чёрным; у Blizzard
+    -- (референс «Параметры → Звук») центр золотой, как кнопки-стрелки.
+    local BG_N = pick("common-dropdown-c-button", "common-dropdown-c-bg", BOX_N)
+    local BG_H = pick("common-dropdown-c-button-hover-2", "common-dropdown-c-button-hover-1", BOX_H)
     local ICON_NEXT = pick("common-dropdown-icon-next")
 
     -- Ставит иконку из атласа. mirror=true → горизонтально отражает: для ЛЕВОЙ
@@ -841,11 +845,20 @@ local function CreateOptionsWindow()
     -- прокрутки MinimalScrollBar с новыми стрелочками.
     local scroll = CreateFrame("ScrollFrame", nil, f, "ScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 12, -78)
-    scroll:SetPoint("BOTTOMRIGHT", -28, 16)
+    scroll:SetPoint("BOTTOMRIGHT", -12, 16)   -- на всю ширину: полосу выносим за окно
     f.Scroll = scroll
 
+    -- Полосу прокрутки выносим ЗА правый край окна с небольшим отступом
+    -- (по аналогии с иконками вкладок слева) — чтобы она не теснила содержимое
+    -- внутри квадратной рамки.
+    if scroll.ScrollBar then
+        scroll.ScrollBar:ClearAllPoints()
+        scroll.ScrollBar:SetPoint("TOPLEFT", f, "TOPRIGHT", 6, -78)
+        scroll.ScrollBar:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 6, 16)
+    end
+
     local container = CreateFrame("Frame", nil, scroll)
-    container:SetSize(540, 10)
+    container:SetSize(596, 10)   -- на всю ширину viewport (полоса вынесена за окно)
     scroll:SetScrollChild(container)
 
     -- Панель «Скрипты» (скрытие UI)
@@ -903,7 +916,7 @@ local function CreateOptionsWindow()
 
         -- строка: [галочка трекера] [название] [дропдаун выбора]
         local function ProfRow(toolKey, label, dropWidth, cfgKey, options)
-            local cb = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+            local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
             cb:SetPoint("TOPLEFT", 10, y)
             cb:SetChecked(ns.db.tools[toolKey] ~= false)
@@ -951,7 +964,7 @@ local function CreateOptionsWindow()
 
         -- Галка «Открывать с профессией» — рядом с кнопкой (перенесена из окна
         -- «Недельные знания»). Окно само открывается/закрывается с окном профессии.
-        local autoCB = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+        local autoCB = ns.MakeCheckButton(profPanel)
         autoCB:SetSize(24, 24)
         autoCB:SetPoint("LEFT", knowBtn, "RIGHT", 12, 0)
         autoCB.Text:SetText("Открывать с профессией")
@@ -974,7 +987,7 @@ local function CreateOptionsWindow()
 
         -- Трактат: две галки (подпись в подсказке + пиксельное свечение).
         local function ProfFeatureCB(featureKey, label, tip, onChange)
-            local cb = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+            local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
             cb:SetPoint("TOPLEFT", 10, y)
             cb:SetChecked(ns.db.features[featureKey] ~= false)
@@ -1011,7 +1024,7 @@ local function CreateOptionsWindow()
         y = y - 14
 
         -- «Купи сумку» + справка (перенесено из бывшей вкладки «Валюта»)
-        local moxieCB = CreateFrame("CheckButton", nil, profPanel, "UICheckButtonTemplate")
+        local moxieCB = ns.MakeCheckButton(profPanel)
         moxieCB:SetSize(24, 24)
         moxieCB:SetPoint("TOPLEFT", 10, y)
         moxieCB:SetChecked(ns.db.tools.curr_moxie ~= false)
@@ -1102,7 +1115,7 @@ local function CreateOptionsWindow()
 
         -- Галка с подписью и тултипом; возвращает чекбокс.
         local function MakeCheck(featureKey, label, tip, onChange)
-            local cb = CreateFrame("CheckButton", nil, featuresPanel, "UICheckButtonTemplate")
+            local cb = ns.MakeCheckButton(featuresPanel)
             cb:SetSize(26, 26)
             cb:SetPoint("TOPLEFT", 10, y)
             cb.Text:SetText(label)
@@ -1211,7 +1224,7 @@ local function CreateOptionsWindow()
         y = y - math.ceil(info:GetStringHeight()) - 12
 
         -- «Баф паладина» (освятить оружие)
-        local palCB = CreateFrame("CheckButton", nil, macroPanel, "UICheckButtonTemplate")
+        local palCB = ns.MakeCheckButton(macroPanel)
         palCB:SetSize(26, 26)
         palCB:SetPoint("TOPLEFT", PAD, y)
         palCB:SetChecked(ns.db.features.paladinWeapon ~= false)
@@ -1286,8 +1299,8 @@ local function CreateOptionsWindow()
             return yy - ROW_STEP
         end
 
-        -- Способности: единая шапка [иконка | название], затем ряды РУ/ЕУ.
-        -- Отдельных заголовков-групп нет (чтобы не дублировать название).
+        -- Способности: шапка [иконка | название] в стиле «Звуки» (крупный
+        -- FFD100 + тонкая линия), иконку оставляем. Затем ряды РУ/ЕУ.
         for _, g in ipairs(MACRO_GROUPS) do
             for _, ab in ipairs(g.abilities) do
                 local ic = macroPanel:CreateTexture(nil, "ARTWORK")
@@ -1295,10 +1308,15 @@ local function CreateOptionsWindow()
                 ic:SetPoint("TOPLEFT", PAD, y)
                 ic:SetTexture(ab.icon)
                 ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                local nm = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                local nm = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
                 nm:SetPoint("LEFT", ic, "RIGHT", 6, 0)
-                nm:SetText(ab.name)
-                y = y - 24 - 2
+                nm:SetText(C("FFD100", ab.name))
+                local line = macroPanel:CreateTexture(nil, "ARTWORK")
+                line:SetColorTexture(1, 1, 1, 0.15)
+                line:SetHeight(1)
+                line:SetPoint("TOPLEFT", PAD, y - 26)
+                line:SetPoint("TOPRIGHT", -PAD, y - 26)
+                y = y - 32
                 y = LayoutRow(ab, "ru", y)
                 y = LayoutRow(ab, "eu", y)
                 y = y - 10
@@ -1308,29 +1326,30 @@ local function CreateOptionsWindow()
         macroPanel:SetHeight(-y + 16)
     end
 
-    -- Панель «Ссылки»: кнопка выделяет ссылку, копировать Ctrl+C
+    -- Панель «Ссылки»: кнопки во всю ширину (как в «Подземельях»), кнопка
+    -- выделяет ссылку → копировать Ctrl+C.
     local linksPanel = CreateFrame("Frame", nil, container)
-    linksPanel:SetSize(520, 230)
+    linksPanel:SetSize(596, 230)
     linksPanel:SetPoint("TOPLEFT")
     do
+        local PW, PAD = 596, 12
         local LINKS = {
-            { name = "Obsidian",
-              url = "https://publish.obsidian.md/sanctumoflight/Библиотеки/Игра/Аддоны" },
-            { name = "Boosty",
-              url = "https://boosty.to/rainon" },
-            { name = "Discord",
-              url = "https://discord.com/invite/yAhvHbM" },
+            { name = "Описание аддона",  url = "https://publish.obsidian.md/sanctumoflight/1.+Реестр+данных/База+знаний/Настройка+аддонов/RainonUI" },
+            { name = "Бусти",            url = "https://boosty.to/rainon" },
+            { name = "Дискорд",          url = "https://discord.com/invite/yAhvHbM" },
+            { name = "Отправить ошибку", url = "" },
         }
-        local y = -20
+        local y = -14
         for _, link in ipairs(LINKS) do
             local btn = CreateFrame("Button", nil, linksPanel, "UIPanelButtonTemplate")
-            btn:SetSize(120, 26)
-            btn:SetPoint("TOPLEFT", 10, y)
+            btn:SetSize(160, 26)
+            btn:SetPoint("TOPLEFT", PAD, y)
             btn:SetText(link.name)
 
             local box = CreateFrame("EditBox", nil, linksPanel, "InputBoxTemplate")
-            box:SetSize(350, 24)
+            box:SetHeight(24)
             box:SetPoint("LEFT", btn, "RIGHT", 16, 0)
+            box:SetPoint("RIGHT", linksPanel, "RIGHT", -PAD, 0)
             box:SetAutoFocus(false)
             box:SetText(link.url)
             box:SetCursorPosition(0)
@@ -1346,12 +1365,172 @@ local function CreateOptionsWindow()
                 box:SetFocus()
                 box:HighlightText()
             end)
-            y = y - 48
+            y = y - 34
         end
         local hint = linksPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        hint:SetPoint("TOPLEFT", 12, y - 6)
+        hint:SetPoint("TOPLEFT", PAD, y - 4)
         hint:SetText("Нажми на кнопку — ссылка выделится, скопируй её " ..
             C("FFFF00", "Ctrl+C") .. ".")
+    end
+
+    -- Панель «Подземелья»: описание модуля + галка «ВКЛ модуль», секция «Ссылки»
+    -- и секция «Недельные маршруты» с матрицей подземелий. Заголовки — как в
+    -- «Звуки». Выключенная галка кладёт серую плёнку на всё, кроме описания.
+    local dungeonPanel = CreateFrame("Frame", nil, container)
+    dungeonPanel:SetSize(596, 380)
+    dungeonPanel:SetPoint("TOPLEFT")
+    do
+        local PW, PAD = 596, 12   -- на всю ширину окна (до вынесенной полосы прокрутки)
+        local USABLE = PW - PAD * 2
+        local y = -6
+        local disableBtns = {}   -- кнопки/поля, которые гасим под плёнкой
+
+        -- Заголовок секции в стиле «Звуки» (GameFontNormalLarge FFD100 + линия).
+        local function Header(title, yy)
+            local h = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            h:SetPoint("TOPLEFT", PAD, yy)
+            h:SetText(C("FFD100", title))
+            local line = dungeonPanel:CreateTexture(nil, "ARTWORK")
+            line:SetColorTexture(1, 1, 1, 0.15)
+            line:SetHeight(1)
+            line:SetPoint("TOPLEFT", PAD, yy - 20)
+            line:SetPoint("TOPRIGHT", -PAD, yy - 20)
+        end
+
+        -- Описание модуля (на всю ширину, вверху).
+        local intro = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        intro:SetPoint("TOPLEFT", PAD, y)
+        intro:SetPoint("TOPRIGHT", -PAD, y)
+        intro:SetJustifyH("LEFT")
+        intro:SetText("Чтобы пользоваться этим разделом вам нужен аддон " .. C("FFD100", "MDT") ..
+            ". Плагин к аддону позволяет новичкам лучше отслеживать противников по выбранному " ..
+            "маршруту. Также вы можете дополнить важные описания к противникам по ссылке " ..
+            C("FFD100", "«Дополнить аддон»") .. ".")
+        y = y - math.ceil(intro:GetStringHeight()) - 12
+
+        -- Галка «ВКЛ модуль» (по умолчанию включена). Управляет загрузкой
+        -- подсказок MDT (MDTTooltip): выкл — не грузим лишние триггеры.
+        local enableCB = ns.MakeCheckButton(dungeonPanel)
+        enableCB:SetSize(26, 26)
+        enableCB:SetPoint("TOPLEFT", PAD, y)
+        enableCB:SetChecked(ns.db.features.dungeonModule ~= false)
+        local enLbl = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        enLbl:SetPoint("LEFT", enableCB, "RIGHT", 4, 0)
+        enLbl:SetText("ВКЛ модуль")
+        y = y - 32
+
+        -- Отсюда вниз ложится плёнка при выключенном модуле.
+        local filmTopY = y
+
+        -- === Секция «Ссылки» ===
+        Header("Ссылки", y); y = y - 30
+        local DLINKS = {
+            { name = "Аддон",           url = "https://www.curseforge.com/wow/addons/mythic-dungeon-tools" },
+            { name = "Плагин",          url = "https://www.curseforge.com/wow/addons/mdthelper" },
+            { name = "Дополнить аддон", url = "" },
+        }
+        for _, link in ipairs(DLINKS) do
+            local btn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+            btn:SetSize(160, 26)
+            btn:SetPoint("TOPLEFT", PAD, y)
+            btn:SetText(link.name)
+            local box = CreateFrame("EditBox", nil, dungeonPanel, "InputBoxTemplate")
+            box:SetHeight(24)
+            box:SetPoint("LEFT", btn, "RIGHT", 16, 0)
+            box:SetPoint("RIGHT", dungeonPanel, "RIGHT", -PAD, 0)
+            box:SetAutoFocus(false)
+            box:SetText(link.url)
+            box:SetCursorPosition(0)
+            box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+            box:SetScript("OnTextChanged", function(self, userInput)
+                if userInput then self:SetText(link.url); self:HighlightText() end
+            end)
+            box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            btn:SetScript("OnClick", function() box:SetFocus(); box:HighlightText() end)
+            disableBtns[#disableBtns + 1] = btn
+            y = y - 34
+        end
+
+        -- Подсказка по копированию (буфер обмена аддонам недоступен —
+        -- копируем через выделение + Ctrl+C).
+        local hint = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", PAD, y - 2)
+        hint:SetText("Нажми на кнопку — ссылка выделится, скопируй её " .. C("FFFF00", "Ctrl+C") .. ".")
+        y = y - 22
+
+        -- === Секция «Недельные маршруты» ===
+        Header("Недельные маршруты", y); y = y - 30
+        -- route — строка !~MDT2~ «Недельного маршрута» (из страницы подземелья
+        -- `_WIKI/MDT_TOOLTIP_DUNGEON/<Название>.md`, таблица «Код для маршрута»).
+        -- Пусто = маршрут ещё не задан (кнопка сообщит об этом).
+        local DUNGEONS = {
+            { name = "Алтарь Клыков",      tele = 1286812, route = "!~MDT2~VY69TsMwFIWVkDIhdUMtLH0GOjBDE2hoRcOPEOrmxtdVkGOj2I5apkRVxcbETgVSxdgFid88g/Mw7LhVF4Y73HPO/e55PeaDGwilyFoqwp1+KvbbtHnXl+ddhDFnV5CIiLO6HQchpzwJEAUpwWeEP3eRkry1VCM2/O398/HI8VJEFcw7oUoSYDJQlFq99XKhBhRSoFYADOLxgRDRkMXGENnZOuIqNgTODKk28wVQU9IUyS3v1oBEPq/t5lY1r2xNnMpmbWdqb1hOxVt1OCKkCYRs55YrYSSv6/pJF41yor91ob/Ke73QP/q9fGjsneCIkChUVI6rfpgAkoAPxy/tkCIhzGfbZSiGUz3Tb/rDHBVmFp7J0fhSP5aZIX2uxGLJLrM/" },
+            { name = "Арена Шрама Бездны", tele = 1286804 },
+            { name = "Гробница Королей",   tele = 1286831 },
+            { name = "Закоулок Душегубов", tele = 1286809 },
+            { name = "Рубиновые Омуты",    tele = 393256  },
+            { name = "Храм Сетралисс",     tele = 1286828 },
+            { name = "Слепящая Долина",    tele = 1286801 },
+            { name = "Берлога Налоракка",  tele = 1286807 },
+        }
+        local COLS, COL_GAP, ICON, ROWH = 2, 10, 22, 30
+        local cellW = (USABLE - COL_GAP * (COLS - 1)) / COLS
+        local btnW = cellW - ICON - 6
+        for i, d in ipairs(DUNGEONS) do
+            local idx = i - 1
+            local col = idx % COLS
+            local row = math.floor(idx / COLS)
+            local cellX = PAD + col * (cellW + COL_GAP)
+            local cy = y - row * ROWH
+            local ic = dungeonPanel:CreateTexture(nil, "ARTWORK")
+            ic:SetSize(ICON, ICON)
+            ic:SetPoint("TOPLEFT", dungeonPanel, "TOPLEFT", cellX, cy)
+            ic:SetTexture((ns.GetSpellTexture and ns.GetSpellTexture(d.tele)) or 132327)
+            ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            local btn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+            btn:SetSize(btnW, 24)
+            btn:SetPoint("TOPLEFT", ic, "TOPRIGHT", 6, 1)
+            btn:SetText(d.name)
+            local route = d.route
+            btn:SetScript("OnClick", function()
+                if ns.Integrations and ns.Integrations.ShareMDTRoute then
+                    ns.Integrations.ShareMDTRoute(route)
+                end
+            end)
+            disableBtns[#disableBtns + 1] = btn
+        end
+        local rows = math.ceil(#DUNGEONS / COLS)
+        y = y - rows * ROWH - 12
+        dungeonPanel:SetHeight(-y + 12)
+
+        -- Серая «плёнка» на всё ниже галки при выключенном модуле:
+        -- перехватывает клики и гасит кнопки/поля.
+        local film = CreateFrame("Frame", nil, dungeonPanel)
+        film:SetPoint("TOPLEFT", dungeonPanel, "TOPLEFT", 0, filmTopY)
+        film:SetPoint("BOTTOMRIGHT", dungeonPanel, "BOTTOMRIGHT", 0, 0)
+        film:SetFrameLevel(dungeonPanel:GetFrameLevel() + 20)
+        film:EnableMouse(true)
+        local ftex = film:CreateTexture(nil, "OVERLAY")
+        ftex:SetAllPoints()
+        ftex:SetColorTexture(0, 0, 0, 0.55)
+        local flbl = film:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        flbl:SetPoint("TOP", film, "TOP", 0, -16)
+        flbl:SetText(C("AAAAAA", "Модуль выключен"))
+
+        local function ApplyModule()
+            local on = ns.db.features.dungeonModule ~= false
+            film:SetShown(not on)
+            for _, b in ipairs(disableBtns) do
+                if on then b:Enable() else b:Disable() end
+            end
+            if ns.MDTNotes and ns.MDTNotes.Refresh then ns.MDTNotes.Refresh() end
+        end
+        enableCB:SetScript("OnClick", function(self)
+            ns.db.features.dungeonModule = self:GetChecked() and true or false
+            ApplyModule()
+        end)
+        ApplyModule()
     end
 
     -- Панель «Звуки» (приглушение) строит модуль SoundMute. Модуль лежит в
@@ -1375,7 +1554,9 @@ local function CreateOptionsWindow()
         { panel = macroPanel,
           intro = C(COLOR.PALADIN, "Паладин") },
         { panel = linksPanel,
-          intro = "Полезные ссылки автора: библиотека аддонов и поддержка." },
+          intro = "Приветствую всех пользователей аддона, на данный момент я активно тестирую функции и дизайн, если вы найдете ошибки, то присылайте по ссылке указанной ниже." },
+        { panel = dungeonPanel,
+          intro = "" },
     }
     if mutePanel then
         PANELS[#PANELS + 1] = { panel = mutePanel,
@@ -1407,16 +1588,31 @@ local function CreateOptionsWindow()
             intro:SetPoint("TOPLEFT", 16, -34)
             intro:SetPoint("TOPRIGHT", -16, -34)
         end
+        -- У вкладки «Подземелья» общий intro пустой (описание живёт в панели),
+        -- поэтому поднимаем область прокрутки ближе к заголовку окна. На
+        -- остальных вкладках оставляем запас под многострочный intro.
+        local topY = (PANELS[index].panel == dungeonPanel) and -44 or -78
+        scroll:SetPoint("TOPLEFT", 12, topY)
+        if scroll.ScrollBar then
+            scroll.ScrollBar:SetPoint("TOPLEFT", f, "TOPRIGHT", 6, topY)
+        end
         scroll:SetVerticalScroll(0)
     end
 
     -- Боковые вкладки слева: квадратные ячейки вплотную к рамке окна,
     -- как вкладки гильдейского банка (чёрная подложка + иконка +
     -- слот-рамка UI-Quickslot2 + подсветка выбора CheckButtonHilight).
-    local function MakeTab(index, iconID, tooltip)
+    -- index — логический (для PANELS/SelectTab). slot — место в вертикальной
+    -- ленте (если не задан = index); slot="bottom" — отдельная ячейка у
+    -- нижне-левого угла (там, где раньше была кнопка перезагрузки).
+    local function MakeTab(index, iconID, tooltip, slot)
         local tab = CreateFrame("Button", nil, f)
         tab:SetSize(36, 36)
-        tab:SetPoint("TOPRIGHT", f, "TOPLEFT", 1, -56 - (index - 1) * 42)
+        if slot == "bottom" then
+            tab:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", 1, 8)
+        else
+            tab:SetPoint("TOPRIGHT", f, "TOPLEFT", 1, -56 - ((slot or index) - 1) * 42)
+        end
         tab:SetFrameLevel(f:GetFrameLevel() + 2)
 
         tab.bg = tab:CreateTexture(nil, "BACKGROUND")
@@ -1468,45 +1664,14 @@ local function CreateOptionsWindow()
     MakeTab(3, phialTexture or 134756, "Профессии")
     MakeTab(4, 1030099, "Удобства")
     MakeTab(5, "Interface\\Icons\\ClassIcon_Paladin", "Паладин")
-    MakeTab(6, "Interface\\Icons\\INV_Misc_Book_09", "Ссылки")
+    MakeTab(7, 255347, "Подземелья", 6)
     if mutePanel then
-        MakeTab(7, 252188, "Звуки")
+        MakeTab(8, 252188, "Звуки", 7)
     end
+    -- «Ссылки» — в ленте под «Звуки» (слот 7) с отступом в одну иконку:
+    -- слот 8 пустой, вкладка на слоте 9.
+    MakeTab(6, 5341597, "Ссылки", 9)
 
-    -- Кнопка перезагрузки: квадратик у левого нижнего угла окна,
-    -- в том же стиле, что и боковые вкладки
-    local reload = CreateFrame("Button", nil, f)
-    reload:SetSize(36, 36)
-    reload:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", 1, 8)
-    reload:SetFrameLevel(f:GetFrameLevel() + 2)
-
-    reload.bg = reload:CreateTexture(nil, "BACKGROUND")
-    reload.bg:SetAllPoints()
-    reload.bg:SetColorTexture(0, 0, 0, 0.85)
-
-    reload.Icon = reload:CreateTexture(nil, "ARTWORK")
-    reload.Icon:SetPoint("TOPLEFT", 6, -6)
-    reload.Icon:SetPoint("BOTTOMRIGHT", -6, 6)
-    -- Современная иконка «обновить» (круговые стрелки), не пиксельная
-    reload.Icon:SetAtlas("questlog-questtypeicon-Recurring")
-
-    reload.Border = reload:CreateTexture(nil, "OVERLAY")
-    reload.Border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-    reload.Border:SetSize(60, 60)
-    reload.Border:SetPoint("CENTER")
-
-    local rhl = reload:CreateTexture(nil, "HIGHLIGHT")
-    rhl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-    rhl:SetBlendMode("ADD")
-    rhl:SetAllPoints()
-
-    reload:SetScript("OnClick", ReloadUI)
-    reload:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Перезагрузить интерфейс")
-        GameTooltip:Show()
-    end)
-    reload:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     SelectTab(1)
     f:Hide()

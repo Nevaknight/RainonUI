@@ -40,6 +40,7 @@ local NOTES = {
     -- == DUNGEON: Рубиновые Омуты ==
     -- == DUNGEON: Храм Сетралисс ==
     -- == DUNGEON: Слепящая Долина ==
+    -- == DUNGEON: Берлога Налоракка ==
 }
 
 -- -------------------------------------------------------------------------
@@ -76,18 +77,37 @@ local function EnsureBlock(mdtTip)
     return block
 end
 
+-- Высота рамки по факту текста. GetStringHeight у ещё не отрисованной строки
+-- может вернуть 0 (а 0 в Lua истинно, поэтому `... or 12` не спасает) —
+-- поэтому явная защита от нуля.
+local function SizeBlock(b)
+    local capH = b.caption:GetStringHeight(); if not capH or capH < 1 then capH = 12 end
+    local txtH = b.text:GetStringHeight();    if not txtH or txtH < 1 then txtH = 14 end
+    b:SetWidth(290)
+    b:SetHeight(8 + capH + 4 + txtH + 10)
+end
+
 local function ShowNote(mdtTip, note)
     local b = EnsureBlock(mdtTip)
     if not b then return end
     b.text:SetText(note)
-    local h = 8 + (b.caption:GetStringHeight() or 12) + 4 + (b.text:GetStringHeight() or 12) + 10
-    b:SetWidth(290)
-    b:SetHeight(h)
+    SizeBlock(b)
     b:Show()
+    -- На ПЕРВОМ показе строки ещё не отмерены — пересчитываем размер на
+    -- следующем кадре, когда высота текста уже известна.
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() if b:IsShown() then SizeBlock(b) end end)
+    end
 end
 
 local function HideNote()
     if block then block:Hide() end
+end
+
+-- Модуль включён? Галка «ВКЛ модуль» на вкладке «Подземелья»
+-- (features.dungeonModule). По умолчанию (nil) — включён.
+local function Enabled()
+    return not (ns.db and ns.db.features and ns.db.features.dungeonModule == false)
 end
 
 -- -------------------------------------------------------------------------
@@ -103,6 +123,7 @@ local function InstallTooltipHook()
 
     -- MDT на наведении зовёт tip.Model:SetCreature(npcID) — ловим npcID здесь.
     hooksecurefunc(tip.Model, "SetCreature", function(_, creatureID)
+        if not Enabled() then HideNote(); return end
         -- Всё тело в защите: npcID может прийти как Secret Value (12.0).
         local ok = pcall(function()
             if issecretvalue and issecretvalue(creatureID) then HideNote(); return end
@@ -123,22 +144,35 @@ end
 
 -- -------------------------------------------------------------------------
 -- Запуск. Фрейм "MDTModelTooltip" MDT строит ЛЕНИВО — только при первом
--- открытии окна MDT. Поэтому:
---  1) пробуем сразу (вдруг окно уже открывали);
---  2) если фрейма ещё нет — коротко проверяем при старте одноразовым тикером,
---     который САМ выключается, как только хук поставлен (или после лимита).
---     Это разовая проба на старте, а НЕ постоянный опрос.
---  3) плюс повторная попытка на входе в мир (reload/смена зоны).
+-- открытии окна MDT, и это может случиться в ЛЮБОЙ момент сессии.
+--
+-- Поэтому таймер работает БЕЗ лимита по времени и сам гасится в тот же миг,
+-- как хук поставлен. Раньше стоял предел ~60 сек после каждого входа в мир:
+-- если игрок открывал MDT позже этого окна, фрейм появлялся уже после того,
+-- как таймер сдался, и заметки не грузились всю сессию (до /reload или смены
+-- зоны, где окно проб открывалось заново). Стоимость опроса — один поиск
+-- глобала раз в 2 сек, только пока хук не встал; после — тикер выключен.
+--
+-- Тикер один (без дублей на каждый loading screen) и не запускается, если
+-- аддон MythicDungeonTools не загружен (тогда фрейма не будет вовсе).
 -- -------------------------------------------------------------------------
+local installTicker
+
+local function MDTLoaded()
+    if C_AddOns and C_AddOns.IsAddOnLoaded then
+        return C_AddOns.IsAddOnLoaded("MythicDungeonTools")
+    end
+    return true -- не можем проверить — не мешаем попыткам
+end
+
 local function StartInstall()
+    if not Enabled() then return end
     if InstallTooltipHook() then return end
+    if installTicker or not MDTLoaded() then return end
     if not C_Timer or not C_Timer.NewTicker then return end
-    local tries = 0
-    local ticker
-    ticker = C_Timer.NewTicker(2, function()
-        tries = tries + 1
-        if InstallTooltipHook() or tries >= 30 then  -- максимум ~60 сек проб
-            if ticker then ticker:Cancel() end
+    installTicker = C_Timer.NewTicker(2, function()
+        if InstallTooltipHook() then
+            if installTicker then installTicker:Cancel(); installTicker = nil end
         end
     end)
 end
@@ -146,3 +180,12 @@ end
 ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
     if not hooked then StartInstall() end
 end)
+
+-- Публичное: галка «ВКЛ модуль» дёргает Refresh при переключении.
+-- Вкл — пробуем поставить хук; выкл — прячем заметку (хук, если уже стоит,
+-- сам проверит Enabled() и ничего не покажет).
+ns.MDTNotes = {
+    Refresh = function()
+        if Enabled() then StartInstall() else HideNote() end
+    end,
+}

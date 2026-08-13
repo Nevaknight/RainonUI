@@ -142,7 +142,7 @@ function Sound.BuildPanel(container)
     end
 
     local function AddRow(p)
-        local cb = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+        local cb = ns.MakeCheckButton(panel)
         cb:SetSize(26, 26)
         cb:SetPoint("TOPLEFT", 14, y)
         cb:SetChecked(db and db[p.key] and true or false)

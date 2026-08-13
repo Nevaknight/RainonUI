@@ -212,6 +212,21 @@ function ns.Print(text)
     print("|cFF33937FRainonUI:|r " .. text)
 end
 
+-- Чекбокс в СОВРЕМЕННОМ стиле Blizzard (как в Настройках 12.0). Если шаблон
+-- недоступен на клиенте — тихо откатываемся на классический UICheckButtonTemplate,
+-- ничего не ломая. Гарантируем поле `.Text` (наш код местами на него рассчитывает,
+-- а у нового шаблона своей подписи может не быть).
+function ns.MakeCheckButton(parent)
+    local cb
+    local ok, made = pcall(CreateFrame, "CheckButton", nil, parent, "WowStyle1CheckButtonTemplate")
+    if ok and made then cb = made else cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate") end
+    if not cb.Text then
+        cb.Text = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        cb.Text:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+    end
+    return cb
+end
+
 -- Проигрывание звука из файла (кастомная медиатека пользователя).
 -- Если файла нет — тихо пропускаем.
 function ns.PlayFile(path)

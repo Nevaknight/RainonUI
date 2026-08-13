@@ -2,10 +2,14 @@
 
 ## 1.4.3
 
-* Paladin tab rebuilt: macros are now grouped by ability, each with an icon-and-name header and one-click RU/EU buttons (RU row on top, EU below). Every button has an info icon that explains exactly what the macro does; clicking a button creates that macro in your General macros, ready to drag onto your action bars.
-* Expanded the paladin macro set — Rebuke (focus / auto-kick), Avenging Wrath + trinket, self-ping, potions, battle rez, Word of Glory, Blessing of Sacrifice, Blessing of Protection (plus a BoP + taunt combo), Blessing of Spellwarding, Blessing of Freedom, and two Divine Shield combos — each available for both RU and EU client languages.
-* Teleport prompt now includes the current-season dungeon portals (Altar of Fangs, Voidscar Arena, King's Rest, Murder Row, Ruby Life Pools, Temple of Sethraliss, The Blinding Vale), while keeping the previous ones.
 * Updated for game patch 12.1.0.
+* **Paladin tab rebuilt** — macros are now grouped by ability, each with an icon-and-name header and one-click RU/EU buttons (RU row on top, EU below). Every button has an info icon that explains exactly what the macro does; clicking a button creates that macro in your General macros, ready to drag onto your action bars.
+* **Expanded the paladin macro set** — Rebuke (focus / auto-kick), Avenging Wrath + trinket, self-ping, potions, battle rez, Word of Glory, Blessing of Sacrifice, Blessing of Protection (plus a BoP + taunt combo), Blessing of Spellwarding, Blessing of Freedom, and two Divine Shield combos — each in both RU and EU client languages.
+* **New "Dungeons" tab** (works with Mythic Dungeon Tools): quick links to MDT and its helper plugin, and a button per current-season dungeon that shares that dungeon's weekly route into MDT with one click on the chat link it posts. A master "Enable module" toggle turns the whole thing on/off (off = no extra triggers loaded).
+* **MDT enemy notes** — you can attach your own note to any dungeon NPC and it shows under MDT's mouseover tooltip. Made the hook install reliable no matter when you first open MDT during a session, and fixed a first-hover sizing glitch.
+* **Teleport prompt** now includes the current-season dungeon portals (Altar of Fangs, Voidscar Arena, King's Rest, Murder Row, Ruby Life Pools, Temple of Sethraliss, The Blinding Vale, Den of Nalorakk), while keeping the previous ones.
+* **New "Faction unlock" hide option** in the Scripts tab — hides the large "Journey Unlocked" major-faction toast.
+* **Interface polish** — all checkboxes now use the modern Blizzard style; the settings window scrollbar moved outside the frame so content uses the full width; the in-game reload button was removed and the "Links" tab moved into the side strip; the Links tab was rebuilt (Addon description, Boosty, Discord, Report a bug).
 
 ## 1.4.2
 

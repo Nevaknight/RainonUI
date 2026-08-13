@@ -53,6 +53,9 @@ local FRAMES = {
     -- Особые
     event           = { "EventToastManagerFrame" },
     dailyquest      = { "ObjectiveTrackerTopBannerFrame" },
+    -- Плашка открытия основной фракции (Blizzard_MajorFactions, грузится лениво —
+    -- pendingPaths дождётся создания фрейма).
+    factiontoast    = { "MajorFactionUnlockToast" },
     ZoneHide        = { "ZoneTextFrame", "SubZoneTextFrame" },
     -- Баннер «X повержен / Подземелье пройдено» (BossBanner, BossBannerToast.xml)
     bossbanner      = { "BossBanner" },
