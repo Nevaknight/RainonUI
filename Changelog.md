@@ -1,5 +1,12 @@
 # RainonUI — Changelog
 
+## 1.4.3
+
+* Paladin tab rebuilt: macros are now grouped by ability, each with an icon-and-name header and one-click RU/EU buttons (RU row on top, EU below). Every button has an info icon that explains exactly what the macro does; clicking a button creates that macro in your General macros, ready to drag onto your action bars.
+* Expanded the paladin macro set — Rebuke (focus / auto-kick), Avenging Wrath + trinket, self-ping, potions, battle rez, Word of Glory, Blessing of Sacrifice, Blessing of Protection (plus a BoP + taunt combo), Blessing of Spellwarding, Blessing of Freedom, and two Divine Shield combos — each available for both RU and EU client languages.
+* Teleport prompt now includes the current-season dungeon portals (Altar of Fangs, Voidscar Arena, King's Rest, Murder Row, Ruby Life Pools, Temple of Sethraliss, The Blinding Vale), while keeping the previous ones.
+* Updated for game patch 12.1.0.
+
 ## 1.4.2
 
 * New "Sounds" tab in the settings window to mute specific sound effects, split into "General" (minimap ping) and "Paladin" (Shield of the Righteous, Avenger's Shield, Blessed Hammer). Choices persist between sessions and re-apply on login, with a "Restore all sounds" button. Muting uses the game's own MuteSoundFile, so it only affects the selected files.

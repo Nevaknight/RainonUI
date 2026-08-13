@@ -348,7 +348,11 @@ local function CastSticker(key, sticker, spells, duration, sound)
     end)
 end
 
-CastSticker("feast",      stFeast, { 462212, 462213, 462211, 457487 }, 10,
+-- Сытная еда (пиршества): старые ID сохранены, добавлены текущие
+-- (Midnight): Парад Луносвета, Празднество Харандара, Сытный парад
+-- Луносвета, Сытное королевское жаркое.
+CastSticker("feast",      stFeast, { 462212, 462213, 462211, 457487,
+                                     1259659, 1259658, 1278895, 1232065 }, 10,
             SOUND.feast)
 CastSticker("food",       stFood,  { 457285, 457283, 457302, 455960 }, 7,
             SOUND.food)
@@ -508,9 +512,15 @@ end
 
 CastText("repair",       txRepair, { 199109, 67826, 453942 }, 7,
          SOUND.repair)
-CastText("cauldron",     txCauldr, { 433293, 433294, 433292, 432877, 432878, 432879 }, 7,
+-- Котёл: старые ID сохранены, добавлены текущие (Midnight):
+-- Мракозарный котел для зелий (1240267), Котел для син'дорайских настоев (1240019).
+CastText("cauldron",     txCauldr, { 433293, 433294, 433292, 432877, 432878, 432879,
+                                     1240267, 1240019 }, 7,
          SOUND.cauldron)
-CastText("mail",         txMail, { 261602, 376664, 56472 }, 7,
+-- Почта: старые ID сохранены, добавлены текущие (Midnight):
+-- Межпространственный почтовый сигнал (1272463), МЯЛЛ-И (54710).
+CastText("mail",         txMail, { 261602, 376664, 56472,
+                                   1272463, 54710 }, 7,
          SOUND.mail)
 CastText("healthstones", txStones, { 29893 }, 7,
          SOUND.healthstones)

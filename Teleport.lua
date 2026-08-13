@@ -34,6 +34,14 @@ local SEASON_PORTALS = {
     { spellID = 1254555, names = { "pit of saron", "яма сарона" } },
     { spellID = 1254551, names = { "seat of the triumvirate", "престол триумвирата" } },
     { spellID = 393273,  names = { "algeth'ar academy", "академия алгет'ар", "академия алгетар" } },
+    -- Сезон Midnight (добавлено; старые порталы выше НЕ удалять — ещё нужны).
+    { spellID = 1286812, names = { "altar of fangs", "алтарь клыков" } },
+    { spellID = 1286804, names = { "voidscar arena", "арена шрама бездны" } },
+    { spellID = 1286831, names = { "king's rest", "гробница королей" } },
+    { spellID = 1286809, names = { "murder row", "закоулок душегубов" } },
+    { spellID = 393256,  names = { "ruby life pools", "рубиновые омуты жизни", "рубиновые омуты" } },
+    { spellID = 1286828, names = { "temple of sethraliss", "храм сетралисс" } },
+    { spellID = 1286801, names = { "the blinding vale", "слепящая долина" } },
 }
 
 -- имя (нижним регистром, без хвостовой скобки) -> запись портала

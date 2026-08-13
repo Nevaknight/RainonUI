@@ -119,16 +119,35 @@ local TOOLS_OPTIONS = {
     { key = "allready",   name = "Все готовы",
       desc = "Стикер «Все готовы» по завершении проверки готовности." },
     { key = "feast",      name = "Сытная еда",
-      desc = "Стикер, когда в группе поставили пиршество." },
+      desc = "Стикер, когда в группе поставили пиршество.",
+      tipLines = {
+          { icon = 1053712, name = "Парад Луносвета" },
+          { icon = 7150437, name = "Празднество Харандара" },
+          { icon = 1053712, name = "Сытный парад Луносвета" },
+          { icon = 4672193, name = "Сытное королевское жаркое" },
+      } },
     { key = "food",       name = "Обычная еда",
       desc = "Стикер, когда в группе поставили обычную еду." },
     { key = "racechange", name = "Смена расы",
       desc = "Стикер, когда кто-то использует смену расы." },
 
     { header = "Оповещения — тексты" },
-    { key = "repair",       name = "Ремонт",       desc = "Поставили ремонтного бота." },
-    { key = "cauldron",     name = "Котёл",        desc = "Поставили котёл с зельями." },
-    { key = "mail",         name = "Почта",        desc = "Вызвали почтовый ящик." },
+    { key = "repair",       name = "Ремонт",       desc = "Поставили ремонтного бота.",
+      tipLines = {
+          { icon = 1405803, name = "Автоматический молот" },
+      } },
+    { key = "cauldron",     name = "Котёл",        desc = "Поставили котёл с зельями.",
+      -- Доп. строки в подсказке: иконка + название котла (текущий контент).
+      tipLines = {
+          { icon = 133782,  name = "Мракозарный котел для зелий" },
+          { icon = 1385153, name = "Котел для син'дорайских настоев" },
+      } },
+    { key = "mail",         name = "Почта",        desc = "Вызвали почтовый ящик.",
+      tipLines = {
+          { icon = 443375,  name = "Штемпельпупс-сигнал" },
+          { icon = 7137506, name = "Межпространственный почтовый сигнал" },
+          { icon = 463542,  name = "МЯЛЛ-И" },
+      } },
     { key = "healthstones", name = "Камни здоровья", desc = "Чернокнижник создал круг камней здоровья." },
     { key = "magetable",    name = "Стол мага",    desc = "Маг поставил стол с едой." },
     { key = "summon",       name = "Шкаф сумона",  desc = "Чернокнижник начал ритуал призыва." },
@@ -205,52 +224,188 @@ local MACRO_ICON = 134400
 -- Иконка строки «Создать всё» — как у вкладки (класс-крест паладина)
 local MACRO_ALL_ICON = "Interface\\Icons\\ClassIcon_Paladin"
 
--- Пары РУ/ЕУ по способностям. icon — fileID иконки; desc — подсказка (что
--- делает макрос) для инфо-кнопки справа.
-local MACRO_ROWS = {
+-- Группы макросов паладина. icon — fileID или путь текстуры. Для каждого
+-- варианта: label {ru/eu} на кнопке, desc — «принцип работы» (инфо-подсказка),
+-- ru/eu — тело макроса (переносы строк — \n). Имена макросов назначаются при
+-- сборке (см. macroPanel), поэтому здесь их нет.
+local MACRO_GROUPS = {
     {
-        icon = 133192, -- Торжество
-        desc = "Лечит цель под курсором (наведение на рамку или модель игрока)," ..
-               " если она жива и союзник; иначе — по обычным правилам (текущая цель).",
-        ru = { name = "1.1_RainonUI", label = "Торжество",
-               body = "#showtooltip \n/cast [@mouseover, exists, nodead, noharm][] Торжество" },
-        eu = { name = "1.2_RainonUI", label = "Word of Glory",
-               body = "#showtooltip \n/cast [@mouseover, exists, nodead, noharm][] Word of Glory" },
+        title = "Общие",
+        abilities = {
+            {
+                icon = 523893, name = "Укор",
+                variants = {
+                    { label = { ru = "Фокус", eu = "Focus" },
+                      desc = "Сбить по фокусу.",
+                      ru = "#showtooltip\n/cast [@focus,exists][@target] Укор",
+                      eu = "#showtooltip\n/cast [@focus,exists][@target] Rebuke" },
+                    { label = { ru = "Авто-кик", eu = "Auto-kick" },
+                      desc = "Меняет цель и сбивает каст случайному кастеру. Затем возвращает цель.",
+                      ru = "#showtooltip\n/cast [@focus,exists,nodead,harm] Укор\n/stopmacro [@focus,exists,nodead,harm]\n/focus target\n/cleartarget\n/targetenemy\n/cast Укор\n/target focus\n/clearfocus\n/startattack",
+                      eu = "#showtooltip\n/cast [@focus,exists,nodead,harm] Rebuke\n/stopmacro [@focus,exists,nodead,harm]\n/focus target\n/cleartarget\n/targetenemy\n/cast Rebuke\n/target focus\n/clearfocus\n/startattack" },
+                },
+            },
+            {
+                icon = 135875, name = "Крылья + тринкет",
+                variants = {
+                    { label = { ru = "Крылья+тринкет", eu = "Wings+trinket" },
+                      desc = "Гнев карателя и верхний тринкет на одной кнопке.",
+                      ru = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13",
+                      eu = "#showtooltip Avenging Wrath\n/cast Avenging Wrath\n/use 13" },
+                },
+            },
+            {
+                icon = "Interface\\MacroFrame\\MacroFrame-Icon", name = "Пинг",
+                variants = {
+                    { label = { ru = "Пинг в себя", eu = "Ping self" },
+                      desc = "Пингуем в себя.",
+                      ru = "/отметка [@player] иду",
+                      eu = "/отметка [@player] иду" },
+                },
+            },
+            {
+                icon = "Interface\\MacroFrame\\MacroFrame-Icon", name = "Зелья",
+                variants = {
+                    { label = { ru = "Поты", eu = "Potions" },
+                      desc = "Поты на одной кнопке, пишем ID потов по порядку использования.",
+                      ru = "#showtooltip\n/use item:ID_ПОТА\n/use ID_ПОТА",
+                      eu = "#showtooltip\n/use item:ID_ПОТА\n/use ID_ПОТА" },
+                },
+            },
+            {
+                icon = "Interface\\MacroFrame\\MacroFrame-Icon", name = "Батлрес",
+                variants = {
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Рес по маусоверу, если под курсором нет трупа каст освящения.",
+                      ru = "/cast [@mouseover,dead,help] Заступничество; Освящение",
+                      eu = "/cast [@mouseover,dead,help] Intercession; Consecration" },
+                },
+            },
+        },
     },
     {
-        icon = 135966, -- Жертвенное благословение / Blessing of Sacrifice
-        desc = "Накладывает защитное благословение на игрока, чьё имя вписано" ..
-               " в макрос. Замени НИК_ИГРОКА на нужное имя.",
-        ru = { name = "1.3_RainonUI", label = "Жертв. благословение",
-               body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Жертвенное благословение" },
-        eu = { name = "1.4_RainonUI", label = "Blessing of Sacrifice",
-               body = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Sacrifice" },
+        title = "Торжество",
+        abilities = {
+            {
+                icon = 133192, name = "Торжество",
+                variants = {
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Способность работает под курсором (наведение на его рамку или модельку в игре), если тот существует, жив и не враг. Если курсор ни на ком — каст по обычным правилам (текущая цель/сам).",
+                      ru = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Торжество",
+                      eu = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Word of Glory" },
+                },
+            },
+        },
     },
     {
-        icon = 524354, -- Божественный щит (+ Длань расплаты): бабл + таунт
-        desc = "Первое нажатие — Божественный щит и провокация (Длань расплаты)," ..
-               " второе нажатие — снимает Божественный щит.",
-        ru = { name = "1.5_RainonUI", label = "Бабл + таунт",
-               body = "#showtooltip\n/cast Божественный щит\n/cast Длань расплаты\n/cancelaura Божественный щит" },
-        eu = { name = "1.6_RainonUI", label = "Bubble + taunt",
-               body = "#showtooltip\n/cast Divine Shield\n/cast Длань расплаты\n/cancelaura Divine Shield" },
+        title = "Жертвенное благословение",
+        abilities = {
+            {
+                icon = 135966, name = "Жертвенное благословение",
+                variants = {
+                    { label = { ru = "Конкретный ник", eu = "Specific Name" },
+                      desc = "Заменяешь НИК_ИГРОКА на нужный ник — удобно для фиксированного напарника (танк/лекарь).",
+                      ru = "#showtooltip\n/cast [target=НИК_ИГРОКА] Жертвенное благословение",
+                      eu = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Sacrifice" },
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Способность работает под курсором (наведение на его рамку или модельку в игре), если тот существует, жив и не враг. Если курсор ни на ком — каст по обычным правилам (текущая цель/сам).",
+                      ru = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Жертвенное благословение",
+                      eu = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Sacrifice" },
+                    { label = { ru = "Фокус", eu = "Focus" },
+                      desc = "Способность работает через \"Запомнить цель\"",
+                      ru = "#showtooltip\n/cast [@focus] Жертвенное благословение",
+                      eu = "#showtooltip\n/cast [@focus] Blessing of Sacrifice" },
+                },
+            },
+        },
     },
     {
-        icon = 135875, -- Гнев карателя (крылья) + верхний тринкет
-        desc = "Крылья (Гнев карателя) и верхний тринкет (слот 13) одним нажатием.",
-        ru = { name = "1.7_RainonUI", label = "Крылья + тринкет",
-               body = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13" },
-        eu = { name = "1.8_RainonUI", label = "Wings + trinket",
-               body = "#showtooltip Гнев карателя\n/cast Гнев карателя\n/use 13" },
+        title = "Благословение защиты",
+        abilities = {
+            {
+                icon = 135964, name = "Благословение защиты",
+                variants = {
+                    { label = { ru = "Конкретный ник", eu = "Specific Name" },
+                      desc = "Заменяешь НИК_ИГРОКА на нужный ник — удобно для фиксированного напарника (танк/лекарь).",
+                      ru = "#showtooltip\n/cast [target=НИК_ИГРОКА] Благословение защиты",
+                      eu = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Protection" },
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Способность работает под курсором (наведение на его рамку или модельку в игре), если тот существует, жив и не враг. Если курсор ни на ком — каст по обычным правилам (текущая цель/сам).",
+                      ru = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Благословение защиты",
+                      eu = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Protection" },
+                    { label = { ru = "Фокус", eu = "Focus" },
+                      desc = "Способность работает через \"Запомнить цель\"",
+                      ru = "#showtooltip\n/cast [@focus] Благословение защиты",
+                      eu = "#showtooltip\n/cast [@focus] Blessing of Protection" },
+                    { label = { ru = "БоП+таунт", eu = "BoP+taunt" },
+                      desc = "Одна кнопка на два нажатия. Первое нажатие — ставит Благословение защиты и провоцирует Дланью расплаты (/cancelaura в этот момент не срабатывает, т.к. щита ещё не было). Второе нажатие — снимает уже действующее Благословение защиты.",
+                      ru = "#showtooltip\n/cast Благословение защиты\n/cast Длань расплаты\n/cancelaura Благословение защиты",
+                      eu = "#showtooltip\n/cast Blessing of Protection\n/cast Hand of Reckoning\n/cancelaura Blessing of Protection" },
+                },
+            },
+        },
     },
     {
-        icon = 135964, -- Благословение защиты
-        desc = "Накладывает Благословение защиты на союзника под курсором" ..
-               " (наведение на рамку или модель игрока), если он жив; иначе — на текущую цель.",
-        ru = { name = "1.9_RainonUI", label = "Благословение защиты",
-               body = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Благословение защиты" },
-        eu = { name = "1.10_RainonUI", label = "Blessing of Protection",
-               body = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Protection" },
+        title = "Божественный щит",
+        abilities = {
+            {
+                icon = 524354, name = "Божественный щит",
+                variants = {
+                    { label = { ru = "Бабл+таунт", eu = "Bubble+taunt" },
+                      desc = "Одна кнопка на два нажатия. Первое нажатие — ставит Божественный щит (неуязвимость) и провоцирует Дланью расплаты (/cancelaura в этот момент не срабатывает, т.к. щита ещё не было). Второе нажатие — снимает уже висящий Божественный щит.",
+                      ru = "#showtooltip\n/cast Божественный щит\n/cast Длань расплаты\n/cancelaura Божественный щит",
+                      eu = "#showtooltip\n/cast Divine Shield\n/cast Hand of Reckoning\n/cancelaura Divine Shield" },
+                    { label = { ru = "Бабл+ХС", eu = "Bubble+HS" },
+                      desc = "Old but Gold.",
+                      ru = "#showtooltip\n/castsequence reset=8 Божественный щит, Камень возвращения",
+                      eu = "#showtooltip\n/castsequence reset=8 Divine Shield, Hearthstone" },
+                },
+            },
+        },
+    },
+    {
+        title = "Благословение защиты от заклинаний",
+        abilities = {
+            {
+                icon = 135880, name = "Благословение защиты от заклинаний",
+                variants = {
+                    { label = { ru = "Конкретный ник", eu = "Specific Name" },
+                      desc = "Заменяешь НИК_ИГРОКА на нужный ник — удобно для фиксированного напарника (танк/лекарь).",
+                      ru = "#showtooltip\n/cast [target=НИК_ИГРОКА] Благословение защиты от заклинаний",
+                      eu = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Spellwarding" },
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Способность работает под курсором (наведение на его рамку или модельку в игре), если тот существует, жив и не враг. Если курсор ни на ком — каст по обычным правилам (текущая цель/сам).",
+                      ru = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Благословение защиты от заклинаний",
+                      eu = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Spellwarding" },
+                    { label = { ru = "Фокус", eu = "Focus" },
+                      desc = "Способность работает через \"Запомнить цель\"",
+                      ru = "#showtooltip\n/cast [@focus] Благословение защиты от заклинаний",
+                      eu = "#showtooltip\n/cast [@focus] Blessing of Spellwarding" },
+                },
+            },
+        },
+    },
+    {
+        title = "Благословенная свобода",
+        abilities = {
+            {
+                icon = 135968, name = "Благословенная свобода",
+                variants = {
+                    { label = { ru = "Конкретный ник", eu = "Specific Name" },
+                      desc = "Заменяешь НИК_ИГРОКА на нужный ник — удобно для фиксированного напарника (танк/лекарь).",
+                      ru = "#showtooltip\n/cast [target=НИК_ИГРОКА] Благословенная свобода",
+                      eu = "#showtooltip\n/cast [target=НИК_ИГРОКА] Blessing of Freedom" },
+                    { label = { ru = "Маусовер", eu = "Mouseover" },
+                      desc = "Способность работает под курсором (наведение на его рамку или модельку в игре), если тот существует, жив и не враг. Если курсор ни на ком — каст по обычным правилам (текущая цель/сам).",
+                      ru = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Благословенная свобода",
+                      eu = "#showtooltip\n/cast [@mouseover, exists, nodead, noharm][] Blessing of Freedom" },
+                    { label = { ru = "Фокус", eu = "Focus" },
+                      desc = "Способность работает через \"Запомнить цель\"",
+                      ru = "#showtooltip\n/cast [@focus] Благословенная свобода",
+                      eu = "#showtooltip\n/cast [@focus] Blessing of Freedom" },
+                },
+            },
+        },
     },
 }
 
@@ -281,8 +436,8 @@ local function CreateMacroSet(list)
         ns.Print(string.format("макросы: создано %d, обновлено %d, не удалось %d — " ..
             "проверь, что в ОБЩИХ макросах есть свободные слоты (лимит 120).", created, updated, failed))
     else
-        ns.Print(string.format("макросы готовы: создано %d, обновлено %d. Открой " ..
-            ns.C("FFFF00", "/macro") .. ", перетащи на панель и замени НИК_ИГРОКА.", created, updated))
+        ns.Print("Создан макрос в " .. ns.C("FFFF00", "/macro") ..
+            ", перетащи на панель команд для использования.")
     end
 end
 
@@ -346,10 +501,23 @@ local function BuildChecklist(scrollParent, options, getValue, onToggle)
             cb.Text:SetFontObject("GameFontHighlight")
             cb:SetChecked(getValue(opt.key))
             cb:SetScript("OnEnter", function(self)
-                if opt.desc and opt.desc ~= "" then
+                local hasDesc  = opt.desc and opt.desc ~= ""
+                local hasLines = opt.tipLines and #opt.tipLines > 0
+                if hasDesc or hasLines then
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetText(opt.name, 1, 1, 1)
-                    GameTooltip:AddLine(opt.desc, nil, nil, nil, true)
+                    if hasDesc then
+                        GameTooltip:AddLine(opt.desc, nil, nil, nil, true)
+                    end
+                    -- Доп. строки: иконка + название (например, список котлов).
+                    if hasLines then
+                        GameTooltip:AddLine(" ")
+                        for _, ln in ipairs(opt.tipLines) do
+                            local icon = ln.icon
+                                and ("|T" .. ln.icon .. ":16:16:0:0|t ") or ""
+                            GameTooltip:AddLine(icon .. (ln.name or ""), 0.9, 0.9, 0.9)
+                        end
+                    end
                     GameTooltip:Show()
                 end
             end)
@@ -1026,19 +1194,26 @@ local function CreateOptionsWindow()
     macroPanel:SetSize(520, 380)
     macroPanel:SetPoint("TOPLEFT")
     do
-        local info = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        info:SetPoint("TOPLEFT", 12, -10)
-        info:SetPoint("TOPRIGHT", -12, -10)
-        info:SetJustifyH("CENTER")
-        info:SetText("Кнопки указанные ниже создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") .. " макросах (префикс " ..
-            C("FFD100", "1.x_RainonUI") .. "). " .. C("FFD100", "РУ") .. "/" .. C("FFD100", "ЕУ") ..
-            " — одна способность на нужном языке клиента.\nПосле — " .. C("FFFF00", "/macro") ..
-            ", перетащи на панель и замени " .. C("FFD100", "НИК_ИГРОКА") .. ".")
+        local PANEL_W, PAD = 520, 12
+        local USABLE = PANEL_W - PAD * 2
+        local y = -10
 
-        -- «Баф паладина» (перенесено из «Удобств») — освятить оружие.
+        -- Вводный текст
+        local info = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        info:SetPoint("TOPLEFT", PAD, y)
+        info:SetPoint("TOPRIGHT", -PAD, y)
+        info:SetJustifyH("CENTER")
+        info:SetText("Кнопки ниже создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") ..
+            " макросах. Верхний ряд у способности — " .. C("FFD100", "РУ") .. ", нижний — " .. C("FFD100", "ЕУ") ..
+            " (под язык клиента). После создания открой " .. C("FFFF00", "/macro") ..
+            ", перетащи макрос на панель и, где нужно, замени " .. C("FFD100", "НИК_ИГРОКА") ..
+            " и " .. C("FFD100", "ID_ПОТА") .. ".")
+        y = y - math.ceil(info:GetStringHeight()) - 12
+
+        -- «Баф паладина» (освятить оружие)
         local palCB = CreateFrame("CheckButton", nil, macroPanel, "UICheckButtonTemplate")
         palCB:SetSize(26, 26)
-        palCB:SetPoint("TOPLEFT", info, "BOTTOMLEFT", 2, -8)
+        palCB:SetPoint("TOPLEFT", PAD, y)
         palCB:SetChecked(ns.db.features.paladinWeapon ~= false)
         palCB:SetScript("OnClick", function(self)
             ns.db.features.paladinWeapon = self:GetChecked() and true or false
@@ -1046,92 +1221,91 @@ local function CreateOptionsWindow()
         end)
         palCB:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Баф паладина", 1, 1, 1)
-            GameTooltip:AddLine("Кликабельная иконка (только паладин): по клику" ..
-                " накладывает обряд освящения (усиленное оружие). Появляется, когда" ..
-                " на оружии нет временного зачарования.", 0.8, 0.8, 0.8, true)
+            GameTooltip:SetText("Кузнец Света", 1, 1, 1)
+            GameTooltip:AddLine("Кликабельная иконка. По клику накладывает " ..
+                C("71D5FF", "[Обряд освящения]") .. ". Загружается только в героической ветке «Кузнец Света».",
+                0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
         palCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
         local palLbl = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         palLbl:SetPoint("LEFT", palCB, "RIGHT", 4, 0)
-        palLbl:SetText("Баф паладина (освятить оружие)")
+        palLbl:SetText("Кузнец Света - " .. C("71D5FF", "[Обряд освящения]"))
+        y = y - 26 - 14
 
-        -- Невидимый якорь на всю ширину под чекбоксом — чтобы строки макросов
-        -- центрировались по панели, а не по узкому чекбоксу (иначе разъезжались).
-        local rowAnchor = CreateFrame("Frame", nil, macroPanel)
-        rowAnchor:SetHeight(1)
-        rowAnchor:SetPoint("TOPLEFT", info, "BOTTOMLEFT", 0, -40)
-        rowAnchor:SetPoint("TOPRIGHT", info, "BOTTOMRIGHT", 0, -40)
-
-        -- одна строка матрицы: [иконка] [кнопка РУ] [кнопка ЕУ] [инфо-?]
-        -- ширина фиксированная (со слотом под инфо) — чтобы столбцы РУ/ЕУ
-        -- совпадали во всех строках, даже без инфо-кнопки.
-        local ROW_W = 26 + 8 + 210 + 8 + 210 + 8 + 36
-        local function MakeRow(prev, icon, ruText, ruFn, euText, euFn, desc)
-            local rowF = CreateFrame("Frame", nil, macroPanel)
-            rowF:SetSize(ROW_W, 26)
-            rowF:SetPoint("TOP", prev, "BOTTOM", 0, -10)
-
-            local ic = rowF:CreateTexture(nil, "ARTWORK")
-            ic:SetSize(26, 26)
-            ic:SetPoint("LEFT", rowF, "LEFT", 0, 0)
-            ic:SetTexture(icon)
-            ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-            local ruB = CreateFrame("Button", nil, rowF, "UIPanelButtonTemplate")
-            ruB:SetSize(210, 24)
-            ruB:SetPoint("LEFT", ic, "RIGHT", 8, 0)
-            ruB:SetText(ruText)
-            ruB:SetScript("OnClick", ruFn)
-
-            local euB = CreateFrame("Button", nil, rowF, "UIPanelButtonTemplate")
-            euB:SetSize(210, 24)
-            euB:SetPoint("LEFT", ruB, "RIGHT", 8, 0)
-            euB:SetText(euText)
-            euB:SetScript("OnClick", euFn)
-
-            -- инфо-кнопка «i» справа (только для строк способностей)
-            if desc then
-                local infoBtn = CreateFrame("Button", nil, rowF)
-                infoBtn:SetSize(36, 36)  -- в 2 раза крупнее прежней иконки
-                infoBtn:SetPoint("LEFT", euB, "RIGHT", 8, 0)
-                local itex = infoBtn:CreateTexture(nil, "ARTWORK")
-                itex:SetAllPoints()
-                -- Иконка «i» как в Spellbook игрока: текстура кнопки
-                -- MainHelpPlateButton (Interface\Common\help-i) — крупная и
-                -- без пикселей, вместо старой FriendsFrame\InformationIcon.
-                itex:SetTexture("Interface\\Common\\help-i")
-                infoBtn:SetScript("OnEnter", function(self)
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetText("Что делает макрос", 1, 1, 1)
-                    GameTooltip:AddLine(desc, 0.85, 0.85, 0.85, true)
-                    GameTooltip:Show()
-                end)
-                infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        -- Назначаем макросам имена по образцу: 1.0_RainonUI, 1.1_RainonUI, …
+        -- (сквозной счётчик по вариантам: РУ, затем ЕУ).
+        local n = 0
+        for _, g in ipairs(MACRO_GROUPS) do
+            for _, ab in ipairs(g.abilities) do
+                for _, v in ipairs(ab.variants) do
+                    v.mru = "1." .. n .. "_RainonUI"; n = n + 1
+                    v.meu = "1." .. n .. "_RainonUI"; n = n + 1
+                end
             end
-
-            return rowF
         end
 
-        local function CollectSet(langKey)
-            local t = {}
-            for _, row in ipairs(MACRO_ROWS) do t[#t + 1] = row[langKey] end
-            return t
+        -- Инфо-иконка «i» с подсказкой «принцип работы».
+        local function MakeInfo(desc)
+            local b = CreateFrame("Button", nil, macroPanel)
+            b:SetSize(32, 32)
+            local t = b:CreateTexture(nil, "ARTWORK")
+            t:SetAllPoints()
+            t:SetTexture("Interface\\Common\\help-i")
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Принцип работы", 1, 1, 1)
+                GameTooltip:AddLine(desc, 0.85, 0.85, 0.85, true)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            return b
         end
 
-        -- Верхняя строка: [логотип] [Создать ВСЕ РУ] [Создать ВСЕ ЕУ] (без инфо)
-        local prev = MakeRow(rowAnchor, MACRO_ALL_ICON,
-            "Создать ВСЕ РУ", function() CreateMacroSet(CollectSet("ru")) end,
-            "Создать ВСЕ ЕУ", function() CreateMacroSet(CollectSet("eu")) end)
+        local BTN_W, BTN_H, INFO_W, INNER_GAP, CELL_GAP = 116, 24, 32, 4, 8
+        local CELL_W, ROW_STEP = INFO_W + INNER_GAP + BTN_W, 38
 
-        -- Строки по способностям: [иконка спелла] [РУ] [ЕУ] [инфо]
-        for _, row in ipairs(MACRO_ROWS) do
-            prev = MakeRow(prev, row.icon,
-                row.ru.label, function() CreateMacroSet({ row.ru }) end,
-                row.eu.label, function() CreateMacroSet({ row.eu }) end,
-                row.desc)
+        -- Один ряд кнопок (РУ или ЕУ) с переносом по ширине; возвращает нижний y.
+        local function LayoutRow(ab, langKey, startY)
+            local x, yy, onLine = PAD, startY, false
+            for _, v in ipairs(ab.variants) do
+                if onLine and (x - PAD + CELL_W) > USABLE then
+                    x, yy, onLine = PAD, yy - ROW_STEP, false
+                end
+                local infoB = MakeInfo(v.desc)
+                infoB:SetPoint("TOPLEFT", macroPanel, "TOPLEFT", x, yy - (BTN_H - INFO_W) / 2)
+                local btn = CreateFrame("Button", nil, macroPanel, "UIPanelButtonTemplate")
+                btn:SetSize(BTN_W, BTN_H)
+                btn:SetPoint("TOPLEFT", macroPanel, "TOPLEFT", x + INFO_W + INNER_GAP, yy)
+                btn:SetText(v.label[langKey])
+                local mname = (langKey == "ru") and v.mru or v.meu
+                local body = v[langKey]
+                btn:SetScript("OnClick", function() CreateMacroSet({ { name = mname, body = body } }) end)
+                x, onLine = x + CELL_W + CELL_GAP, true
+            end
+            return yy - ROW_STEP
         end
+
+        -- Способности: единая шапка [иконка | название], затем ряды РУ/ЕУ.
+        -- Отдельных заголовков-групп нет (чтобы не дублировать название).
+        for _, g in ipairs(MACRO_GROUPS) do
+            for _, ab in ipairs(g.abilities) do
+                local ic = macroPanel:CreateTexture(nil, "ARTWORK")
+                ic:SetSize(22, 22)
+                ic:SetPoint("TOPLEFT", PAD, y)
+                ic:SetTexture(ab.icon)
+                ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                local nm = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                nm:SetPoint("LEFT", ic, "RIGHT", 6, 0)
+                nm:SetText(ab.name)
+                y = y - 24 - 2
+                y = LayoutRow(ab, "ru", y)
+                y = LayoutRow(ab, "eu", y)
+                y = y - 10
+            end
+        end
+
+        macroPanel:SetHeight(-y + 16)
     end
 
     -- Панель «Ссылки»: кнопка выделяет ссылку, копировать Ctrl+C
