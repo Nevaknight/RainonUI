@@ -114,12 +114,38 @@ for _, o in ipairs(HIDE_OPTIONS) do
     end
 end
 
+-- Два заголовка (как во вкладке «Звуки»):
+--  • «Не требуют аддона» — триггерятся локальными игровыми событиями, работают
+--    у любого игрока сами по себе.
+--  • «Требуют RainonUI» — реагируют на КАСТ другого игрока; в 12.0 чужой каст
+--    напрямую не поймать, поэтому нужна синхронизация аддон-сообщениями
+--    (наш аддон или Northern Sky RT) — см. текст-описание под заголовком.
 local TOOLS_OPTIONS = {
-    { header = "Стикеры (сбор рейда)" },
+    { header = "Не требуют аддона" },
     { key = "breaktimer", name = "Перерыв",
       desc = "Большой стикер с таймером перерыва из DBM или BigWigs." },
     { key = "allready",   name = "Все готовы",
       desc = "Стикер «Все готовы» по завершении проверки готовности." },
+    { key = "readybar",   name = "Полоса готовности", desc = "Полоса-таймер во время проверки готовности." },
+    { key = "leader",     name = "Лидер группы",   desc = "Крупный текст, когда тебе передали лидерство." },
+    { key = "combatdrop", name = "Выход из боя",   desc = "Текст «Бой спал» при выходе из боя в группе." },
+    { key = "combattimer", name = "Таймер боя",
+      desc = "Таймер текущего боя. Позицию можно менять в режиме редактирования Blizzard (Esc → Настройка интерфейса)." },
+    { key = "invispotion", name = "Зелье невидимости",
+      desc = "Иконка активного зелья невидимости с таймером." },
+    { key = "engcloak", name = "Инженерный плащ", desc = "Кулдаун инженерного плаща." },
+    { key = "mageeat",      name = "Кушай еду мага",
+      desc = "Напоминание поесть еду мага, если здоровье ниже 60% в рейде." },
+    { key = "bonusroll", name = "Бонусная добыча",
+      desc = "Перемещает окна бонусной добычи: бросок, выигранный предмет и выигранное золото (BonusRollFrame, BonusRollLootWonFrame, BonusRollMoneyWonFrame) — один общий бокс. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
+    { key = "keystone", name = "Окно эпохального ключа",
+      desc = "Перемещает окно «Вставьте эпохальный ключ» (ChallengesKeystoneFrame). Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
+
+    { header = "Требуют RainonUI" },
+    { text = "В патче 12.1 вам требуется синхронизировать передачу сообщений" ..
+             " между игроками с помощью аддонов, вы можете делать это с помощью" ..
+             " моего аддона или использовать Northern Sky Raid Tools. Тогда вы" ..
+             " будете получать сообщения от других игроков." },
     { key = "feast",      name = "Сытная еда",
       desc = "Стикер, когда в группе поставили пиршество.",
       tipLines = {
@@ -131,12 +157,15 @@ local TOOLS_OPTIONS = {
     { key = "food",       name = "Обычная еда",
       desc = "Стикер, когда в группе поставили обычную еду." },
     { key = "racechange", name = "Смена расы",
-      desc = "Стикер, когда кто-то использует смену расы." },
-
-    { header = "Оповещения — тексты" },
+      desc = "Стикер, когда кто-то использует смену расы.",
+      tipLines = {
+          { icon = 2902390, name = "Атомный преобразователь" },
+      } },
     { key = "repair",       name = "Ремонт",       desc = "Поставили ремонтного бота.",
       tipLines = {
           { icon = 1405803, name = "Автоматический молот" },
+          { icon = 254097,  name = "Дживс" },
+          { icon = 254109,  name = "Алгарийский ремонтный робот 11-О" },
       } },
     { key = "cauldron",     name = "Котёл",        desc = "Поставили котёл с зельями.",
       -- Доп. строки в подсказке: иконка + название котла (текущий контент).
@@ -148,31 +177,12 @@ local TOOLS_OPTIONS = {
       tipLines = {
           { icon = 443375,  name = "Штемпельпупс-сигнал" },
           { icon = 7137506, name = "Межпространственный почтовый сигнал" },
+          { icon = 1029578, name = "Охунский насест" },
           { icon = 463542,  name = "МЯЛЛ-И" },
       } },
-    { key = "healthstones", name = "Камни здоровья", desc = "Чернокнижник создал круг камней здоровья." },
+    { key = "healthstones", name = "Камни здоровья", desc = "Чернокнижник создал круг камней здоровья. Не показывается, если у тебя уже 3 камня." },
     { key = "magetable",    name = "Стол мага",    desc = "Маг поставил стол с едой." },
     { key = "summon",       name = "Шкаф сумона",  desc = "Чернокнижник начал ритуал призыва." },
-    { key = "mageeat",      name = "Кушай еду мага",
-      desc = "Напоминание поесть еду мага, если здоровье ниже 60% в рейде." },
-
-    { header = "Оповещения" },
-    { key = "leader",     name = "Лидер группы",   desc = "Крупный текст, когда тебе передали лидерство." },
-    { key = "readybar",   name = "Полоса готовности", desc = "Полоса-таймер во время проверки готовности." },
-    { key = "combatdrop", name = "Выход из боя",   desc = "Текст «Бой спал» при выходе из боя в группе." },
-
-    { header = "Иконки" },
-    { key = "invispotion", name = "Зелье невидимости",
-      desc = "Иконка активного зелья невидимости с таймером." },
-    { key = "engcloak", name = "Инженерный плащ", desc = "Кулдаун инженерного плаща." },
-
-    { header = "Прочее" },
-    { key = "combattimer", name = "Таймер боя",
-      desc = "Таймер текущего боя. Позицию можно менять в режиме редактирования Blizzard (Esc → Настройка интерфейса)." },
-    { key = "bonusroll", name = "Бонусная добыча",
-      desc = "Перемещает окна бонусной добычи: бросок, выигранный предмет и выигранное золото (BonusRollFrame, BonusRollLootWonFrame, BonusRollMoneyWonFrame) — один общий бокс. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
-    { key = "keystone", name = "Окно эпохального ключа",
-      desc = "Перемещает окно «Вставьте эпохальный ключ» (ChallengesKeystoneFrame). Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
 }
 
 local PROF_OPTIONS = {
@@ -197,22 +207,13 @@ local MOXIE_INFO = "Учитываются все профессии:\n"
     .. "• Портняжное дело — Пыл искусного портного"
 
 local FEATURES_OPTIONS = {
+    { header = "Общее" },
     { key = "teleportPrompt", name = "Телепорты",
       desc = "Окно телепорта в подземелье при вступлении в группу Поиска групп:" ..
              " кнопка телепорта в один клик, если он изучен." },
     { key = "reloadMenuButton", name = "Кнопка перезагрузки",
       desc = "Добавляет кнопку «Перезагрузить UI» сверху игрового меню (Esc)." },
-    { key = "tankMark", name = "Метка танка",
-      desc = "Если ты танк, при проверке готовности по центру появляется иконка" ..
-             " выбранного значка с подписью «Задать танку метку?». Клик ставит" ..
-             " значок на себя. Когда проверка готовности заканчивается — окно" ..
-             " скрывается. Иконку можно двигать в режиме редактирования." },
-
-    { header = "CraftSim (нужны CraftSim и Auctionator)" },
-    { key = "craftAHButton", name = "Кнопка списка покупок на аукционе",
-      desc = "На окне аукциона добавляет кнопку, которая просит CraftSim собрать" ..
-             " список покупок для его ОЧЕРЕДИ крафта в Auctionator — не нужно" ..
-             " открывать сам CraftSim (сначала добавь рецепты в очередь CraftSim)." },
+    -- «Метка танка», «Воскрешение», «Изобилие» — кастомными секциями ниже.
 }
 
 -- -------------------------------------------------------------------------
@@ -448,9 +449,9 @@ end
 -- -------------------------------------------------------------------------
 local function BuildChecklist(scrollParent, options, getValue, onToggle)
     local content = CreateFrame("Frame", nil, scrollParent)
-    content:SetSize(520, 10)
+    content:SetSize(596, 10)   -- на всю ширину контейнера (как «Подземелья»/«Ссылки»)
 
-    local COL_X = { 10, 270 }
+    local COL_X = { 12, 304 }
     local ROW_H = 26
 
     local rows = {}   -- виджеты с метаданными для перерасчёта раскладки
@@ -460,39 +461,101 @@ local function BuildChecklist(scrollParent, options, getValue, onToggle)
     -- Создаём все виджеты (позиции проставит Relayout).
     for _, opt in ipairs(options) do
         if opt.header then
-            -- Заголовок. Спойлер (opt.spoiler) — кликабельный, со стрелкой
-            -- +/−; сворачивает свою секцию до следующего заголовка.
-            local hb = CreateFrame("Button", nil, content)
-            hb:SetHeight(20)
-            local tex
             if opt.spoiler then
-                tex = hb:CreateTexture(nil, "ARTWORK")
-                tex:SetSize(16, 16)
-                tex:SetPoint("LEFT", hb, "LEFT", 0, 0)
-            end
-            local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-            ht:SetPoint("LEFT", hb, "LEFT", opt.spoiler and 20 or 0, 0)
-            ht:SetText(C("FFD100", opt.header))
-            hb:SetWidth(ht:GetStringWidth() + (opt.spoiler and 22 or 0) + 4)
-            local row = { kind = "header", opt = opt, frame = hb, tex = tex,
-                          spoiler = opt.spoiler, collapsed = opt.collapsed or false }
-            local function UpdateArrow()
-                if not tex then return end
-                tex:SetTexture(row.collapsed and "Interface\\Buttons\\UI-PlusButton-Up"
-                    or "Interface\\Buttons\\UI-MinusButton-Up")
-            end
-            UpdateArrow()
-            if opt.spoiler then
+                -- Спойлер-плашка во всю ширину теми же атласами, что и заголовки
+                -- журнала заданий Blizzard (ListHeaderThreeSliceTemplate): 3-слайс
+                -- бар + название слева + золотой +/− справа; клик сворачивает.
+                local hb = CreateFrame("Button", nil, content)
+                local left = hb:CreateTexture(nil, "BACKGROUND")
+                left:SetAtlas("Options_ListExpand_Left", true)
+                local barH = left:GetHeight()
+                if not barH or barH < 1 then barH = 24 end
+                hb:SetHeight(barH)
+                left:SetPoint("LEFT")
+                -- В атлас ПРАВОГО капа (Options_ListExpand_Right) вшит белый значок
+                -- раскрытия. Чтобы его не было — правый край делаем зеркалом чистого
+                -- левого капа (отражаем по X через SetTexCoord).
+                local right = hb:CreateTexture(nil, "BACKGROUND")
+                right:SetAtlas("Options_ListExpand_Left", true)
+                local a,b,c,d,e,f,g,h = right:GetTexCoord()
+                right:SetTexCoord(e,f,g,h,a,b,c,d)
+                right:SetPoint("RIGHT")
+                local mid = hb:CreateTexture(nil, "BACKGROUND")
+                mid:SetAtlas("_Options_ListExpand_Middle", false)
+                mid:SetHeight(barH)
+                mid:SetPoint("LEFT", left, "RIGHT")
+                mid:SetPoint("RIGHT", right, "LEFT")
+                -- подсветка при наведении — те же куски (правый тоже зеркалим)
+                local hlL = hb:CreateTexture(nil, "HIGHLIGHT")
+                hlL:SetAtlas("Options_ListExpand_Left", true)
+                hlL:SetPoint("LEFT"); hlL:SetAlpha(0.4); hlL:SetBlendMode("ADD")
+                local hlR = hb:CreateTexture(nil, "HIGHLIGHT")
+                hlR:SetAtlas("Options_ListExpand_Left", true)
+                local a2,b2,c2,d2,e2,f2,g2,h2 = hlR:GetTexCoord()
+                hlR:SetTexCoord(e2,f2,g2,h2,a2,b2,c2,d2)
+                hlR:SetPoint("RIGHT"); hlR:SetAlpha(0.4); hlR:SetBlendMode("ADD")
+                local hlM = hb:CreateTexture(nil, "HIGHLIGHT")
+                hlM:SetAtlas("_Options_ListExpand_Middle", false)
+                hlM:SetHeight(barH); hlM:SetAlpha(0.4); hlM:SetBlendMode("ADD")
+                hlM:SetPoint("LEFT", hlL, "RIGHT"); hlM:SetPoint("RIGHT", hlR, "LEFT")
+                local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                ht:SetPoint("LEFT", hb, "LEFT", 12, 0)
+                ht:SetText(C("FFD100", opt.header))
+                local tex = hb:CreateTexture(nil, "ARTWORK")
+                tex:SetPoint("RIGHT", hb, "RIGHT", -8, 0)
+                local row = { kind = "header", opt = opt, frame = hb, tex = tex,
+                              bar = true, spoiler = true, collapsed = opt.collapsed or false }
+                -- Атласы Blizzard (CollapseButton.Icon): плюс/минус. Заливаем всю
+                -- иконку золотым (как делает игра вершинным цветом) — иначе под
+                -- глифом просвечивает белая подложка атласа. SetAtlas сбрасывает
+                -- цвет на белый, поэтому красим ПОСЛЕ него.
+                local function UpdateArrow()
+                    tex:SetAtlas(row.collapsed and "common-button-list-plus"
+                        or "common-button-list-minus", true)
+                    tex:SetVertexColor(1, 0.82, 0)
+                end
+                UpdateArrow()
                 hb:SetScript("OnClick", function()
                     row.collapsed = not row.collapsed
                     UpdateArrow()
                     Relayout()
                 end)
+                rows[#rows + 1] = row
+            else
+                -- Обычный заголовок: текст + линия под ним (стиль «Звуки»/«Подземелья»).
+                local hb = CreateFrame("Frame", nil, content)
+                hb:SetHeight(20)
+                local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                ht:SetPoint("LEFT", hb, "LEFT", 0, 0)
+                ht:SetText(C("FFD100", opt.header))
+                hb:SetWidth(ht:GetStringWidth() + 4)
+                -- необязательная инфо-иконка «i» рядом с заголовком (opt.info = текст).
+                if opt.info then
+                    local ib = CreateFrame("Button", nil, hb)
+                    ib:SetSize(16, 16)
+                    ib:SetPoint("LEFT", ht, "RIGHT", 6, 0)
+                    local it = ib:CreateTexture(nil, "ARTWORK")
+                    it:SetAllPoints()
+                    it:SetTexture("Interface\\Common\\help-i")
+                    ib:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(opt.header, 1, 1, 1)
+                        GameTooltip:AddLine(opt.info, 0.85, 0.85, 0.85, true)
+                        GameTooltip:Show()
+                    end)
+                    ib:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    hb:SetWidth(ht:GetStringWidth() + 4 + 22)
+                end
+                local row = { kind = "header", opt = opt, frame = hb }
+                local line = content:CreateTexture(nil, "ARTWORK")
+                line:SetColorTexture(1, 1, 1, 0.15)
+                line:SetHeight(1)
+                row.line = line
+                rows[#rows + 1] = row
             end
-            rows[#rows + 1] = row
         elseif opt.text then
             local t = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            t:SetWidth(496)
+            t:SetWidth(572)   -- 596 - PAD*2; фикс. ширина, чтобы GetStringHeight() считал перенос
             t:SetJustifyH("LEFT")
             t:SetText(opt.text)
             rows[#rows + 1] = { kind = "text", opt = opt, fs = t }
@@ -545,12 +608,27 @@ local function BuildChecklist(scrollParent, options, getValue, onToggle)
         for _, r in ipairs(rows) do
             if r.kind == "header" then
                 if col == 1 then col = 0; y = y - ROW_H end
-                y = y - 10
+                y = y - 12
                 r.frame:ClearAllPoints()
-                r.frame:SetPoint("TOPLEFT", 10, y)
-                r.frame:Show()
-                curCollapsed = r.spoiler and r.collapsed
-                y = y - 26
+                if r.bar then
+                    -- плашка-спойлер во всю ширину окна
+                    r.frame:SetPoint("TOPLEFT", 8, y)
+                    r.frame:SetPoint("TOPRIGHT", -8, y)
+                    r.frame:Show()
+                    curCollapsed = r.collapsed
+                    y = y - (r.frame:GetHeight() + 8)
+                else
+                    r.frame:SetPoint("TOPLEFT", 12, y)
+                    r.frame:Show()
+                    if r.line then
+                        r.line:ClearAllPoints()
+                        r.line:SetPoint("TOPLEFT", 12, y - 20)
+                        r.line:SetPoint("TOPRIGHT", -12, y - 20)
+                        r.line:Show()
+                    end
+                    curCollapsed = r.spoiler and r.collapsed
+                    y = y - 32
+                end
             elseif r.kind == "text" then
                 if curCollapsed then
                     r.fs:Hide()
@@ -1052,6 +1130,39 @@ local function CreateOptionsWindow()
         moxieText:SetText(MOXIE_INFO)
         y = y - moxieText:GetStringHeight() - 12
 
+        -- CraftSim (перенесено из «Удобства»): заголовок с подчёркиванием + галка.
+        y = y - 6
+        local craftHdr = profPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        craftHdr:SetPoint("TOPLEFT", 12, y)
+        craftHdr:SetText(C("FFD100", "CraftSim (нужны CraftSim и Auctionator)"))
+        local craftLine = profPanel:CreateTexture(nil, "ARTWORK")
+        craftLine:SetColorTexture(1, 1, 1, 0.15)
+        craftLine:SetHeight(1)
+        craftLine:SetPoint("TOPLEFT", 12, y - 20)
+        craftLine:SetPoint("TOPRIGHT", -12, y - 20)
+        y = y - 32
+        local craftCB = ns.MakeCheckButton(profPanel)
+        craftCB:SetSize(26, 26)
+        craftCB:SetPoint("TOPLEFT", 12, y)
+        craftCB.Text:SetText("Кнопка списка покупок на аукционе")
+        craftCB.Text:SetFontObject("GameFontHighlight")
+        craftCB:SetChecked(ns.db.features.craftAHButton and true or false)
+        craftCB:SetScript("OnClick", function(self)
+            ns.db.features.craftAHButton = self:GetChecked() and true or false
+            if ns.Integrations and ns.Integrations.RefreshAH then ns.Integrations.RefreshAH() end
+        end)
+        craftCB:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Кнопка списка покупок на аукционе", 1, 1, 1)
+            GameTooltip:AddLine("На окне аукциона добавляет кнопку, которая просит" ..
+                " CraftSim собрать список покупок для его ОЧЕРЕДИ крафта в Auctionator" ..
+                " — не нужно открывать сам CraftSim (сначала добавь рецепты в очередь" ..
+                " CraftSim).", 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        craftCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        y = y - 30
+
         profPanel:SetHeight(-y + 20)
     end
 
@@ -1065,59 +1176,61 @@ local function CreateOptionsWindow()
                 ns.Teleport.Hide()
             elseif opt.key == "tankMark" and ns.Tools and ns.Tools.RefreshTankMark then
                 ns.Tools.RefreshTankMark()
-            elseif opt.key == "craftAHButton" and ns.Integrations then
-                ns.Integrations.RefreshAH()
             end
         end)
     featuresPanel:SetPoint("TOPLEFT")
 
-    -- Выбор значка для «Метки танка» (дропдаун под списком «Удобства»).
-    -- Значки — стандартные метки цели с инлайн-иконкой в тексте.
+    -- === Метка танка + Воскрешение + Изобилие (кастомные секции) ===
+    -- Заголовки с подчёркиванием; у «Метки танка» — крупный значок «инфо».
+    -- Селекторы звука выстроены в ОБЩУЮ колонку: одинаковый левый край (сразу
+    -- после подписи) и ширина до правого края окна; строки — в одну линию,
+    -- селекторы повыше (в 1.5 раза).
     do
-        local y = -featuresPanel:GetHeight() + 4
-        local lbl = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lbl:SetPoint("TOPLEFT", 12, y)
-        lbl:SetText("Значок метки танка:")
-        local MARK = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_%d:16|t "
-        local markOptions = {
-            { text = MARK:format(8) .. "Череп",       value = 8 },
-            { text = MARK:format(7) .. "Крест",       value = 7 },
-            { text = MARK:format(6) .. "Квадрат",     value = 6 },
-            { text = MARK:format(5) .. "Полумесяц",   value = 5 },
-            { text = MARK:format(4) .. "Треугольник", value = 4 },
-            { text = MARK:format(3) .. "Ромб",        value = 3 },
-            { text = MARK:format(2) .. "Круг",        value = 2 },
-            { text = MARK:format(1) .. "Звезда",      value = 1 },
-        }
-        local dd = MakeDropdown(featuresPanel, 150,
-            function() return ns.db.features.tankMarkIcon or 8 end,
-            function(v)
-                ns.db.features.tankMarkIcon = v
-                if ns.Tools and ns.Tools.RefreshTankMark then ns.Tools.RefreshTankMark() end
-            end,
-            markOptions)
-        dd:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
-        featuresPanel:SetHeight(featuresPanel:GetHeight() + 40)
-    end
-
-    -- === Секция «Воскрешение» (заголовок как у CraftSim) ===
-    -- Две функции: звук когда воскрешают ТЕБЯ, и звук когда кто-то в группе/рейде
-    -- КАСТУЕТ воскрешение. У каждой — своя галка и свой селектор звука (крупный,
-    -- по центру). Выбор звука сам включает соответствующую галку.
-    do
-        local PANEL_W = 520
+        local PANEL_W = 596
         local y = -featuresPanel:GetHeight() - 4
 
-        local hdr = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        hdr:SetPoint("TOPLEFT", 10, y)
-        hdr:SetText(C("FFD100", "Воскрешение"))
-        y = y - 28
+        -- Левый край колонки селекторов = сразу после самой длинной подписи.
+        local probe = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        probe:SetText("Звук воскрешения")
+        local COL_X = 12 + 26 + 4 + math.ceil(probe:GetStringWidth()) + 16
+        probe:Hide()
+        local SELW = (PANEL_W - 12) - COL_X
+        local SELH = 39   -- ~1.5x прежней высоты (26)
 
-        -- Галка с подписью и тултипом; возвращает чекбокс.
+        -- Заголовок секции: FFD100 + подчёркивание во всю ширину. infoText —
+        -- крупный значок «i» рядом (как у кнопок макросов) с подсказкой.
+        local function SectionHeader(title, infoText, yy)
+            local hdr = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            hdr:SetPoint("TOPLEFT", 12, yy)
+            hdr:SetText(C("FFD100", title))
+            if infoText then
+                local ib = CreateFrame("Button", nil, featuresPanel)
+                ib:SetSize(28, 28)
+                ib:SetPoint("LEFT", hdr, "RIGHT", 8, 0)
+                local it = ib:CreateTexture(nil, "ARTWORK")
+                it:SetAllPoints()
+                it:SetTexture("Interface\\Common\\help-i")
+                ib:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(title, 1, 1, 1)
+                    GameTooltip:AddLine(infoText, 0.85, 0.85, 0.85, true)
+                    GameTooltip:Show()
+                end)
+                ib:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end
+            local uline = featuresPanel:CreateTexture(nil, "ARTWORK")
+            uline:SetColorTexture(1, 1, 1, 0.15)
+            uline:SetHeight(1)
+            uline:SetPoint("TOPLEFT", 12, yy - 20)
+            uline:SetPoint("TOPRIGHT", -12, yy - 20)
+            return yy - 32
+        end
+
+        -- Галка + подпись на текущем y; возвращает чекбокс.
         local function MakeCheck(featureKey, label, tip, onChange)
             local cb = ns.MakeCheckButton(featuresPanel)
             cb:SetSize(26, 26)
-            cb:SetPoint("TOPLEFT", 10, y)
+            cb:SetPoint("TOPLEFT", 12, y)
             cb.Text:SetText(label)
             cb.Text:SetFontObject("GameFontHighlight")
             cb:SetChecked(ns.db.features[featureKey] and true or false)
@@ -1134,14 +1247,15 @@ local function CreateOptionsWindow()
                 end)
                 cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
             end
-            y = y - 28
             return cb
         end
 
-        -- Крупный (1.5x) селектор звука по центру панели. applyFn получает имя.
-        local function MakeSoundSelector(getName, applyFn, previewFn)
-            -- Список строим ЖИВЬЁМ при каждом обращении (функция) — чтобы звуки,
-            -- зарегистрированные чужими аддонами позже, всегда попадали в список.
+        -- Строка «звук»: галка + подпись слева, селектор в колонке справа
+        -- (COL_X … правый край, высота SELH). Галку центруем по высоте селектора.
+        local function SoundRow(featureKey, label, tip, getName, applyFn, previewFn)
+            local cb = MakeCheck(featureKey, label, tip)
+            cb:ClearAllPoints()
+            cb:SetPoint("TOPLEFT", 12, y - (SELH - 26) / 2)
             local function optsFn()
                 local names = (ns.Tools and ns.Tools.GetSoundNames and ns.Tools.GetSoundNames()) or {}
                 local opts = {}
@@ -1149,65 +1263,127 @@ local function CreateOptionsWindow()
                 if #opts == 0 then opts[1] = { text = "—", value = "None" } end
                 return opts
             end
-            local sel = MakeArrowSelector(featuresPanel, 390, getName, applyFn, optsFn,
-                function(v) applyFn(v); if previewFn then previewFn() end end, 34)
-            sel:SetPoint("TOP", featuresPanel, "TOPLEFT", PANEL_W / 2, y)
-            y = y - 42
-            return sel
+            local sel = MakeArrowSelector(featuresPanel, SELW, getName,
+                function(v) applyFn(v); cb:SetChecked(true) end, optsFn,
+                function(v) applyFn(v); cb:SetChecked(true); if previewFn then previewFn() end end, SELH)
+            sel:SetPoint("TOPLEFT", featuresPanel, "TOPLEFT", COL_X, y)
+            y = y - SELH - 10
         end
 
-        -- 1) Звук, когда воскрешают ТЕБЯ.
-        local cb1
-        cb1 = MakeCheck("resurrectSoundOn", "Звук воскрешения",
-            "Играет, когда на тебя применили воскрешение (окно «Воскреснуть»).")
-        MakeSoundSelector(
-            function() return (ns.Tools and ns.Tools.CurrentSoundName and ns.Tools.CurrentSoundName()) or "None" end,
+        -- 1) Метка танка — галка + выбор значка в одну строку (значок в колонке).
+        y = SectionHeader("Метка танка",
+            "Это тестовая функция, она может работать некорректно", y)
+        MakeCheck("tankMark", "Метка танка",
+            "Если ты танк, при проверке готовности по центру появляется иконка" ..
+            " выбранного значка с подписью «Задать танку метку?». Клик ставит значок" ..
+            " на себя. Иконку можно двигать в режиме редактирования.",
+            function() if ns.Tools and ns.Tools.RefreshTankMark then ns.Tools.RefreshTankMark() end end)
+        local MARK = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_%d:16|t "
+        local markOptions = {
+            { text = MARK:format(8) .. "Череп",       value = 8 },
+            { text = MARK:format(7) .. "Крест",       value = 7 },
+            { text = MARK:format(6) .. "Квадрат",     value = 6 },
+            { text = MARK:format(5) .. "Полумесяц",   value = 5 },
+            { text = MARK:format(4) .. "Треугольник", value = 4 },
+            { text = MARK:format(3) .. "Ромб",        value = 3 },
+            { text = MARK:format(2) .. "Круг",        value = 2 },
+            { text = MARK:format(1) .. "Звезда",      value = 1 },
+        }
+        local dd = MakeDropdown(featuresPanel, SELW,
+            function() return ns.db.features.tankMarkIcon or 8 end,
             function(v)
-                ns.db.features.resurrectSound = v
-                ns.db.features.resurrectSoundOn = true
-                cb1:SetChecked(true)
+                ns.db.features.tankMarkIcon = v
+                if ns.Tools and ns.Tools.RefreshTankMark then ns.Tools.RefreshTankMark() end
             end,
+            markOptions)
+        dd:SetPoint("TOPLEFT", featuresPanel, "TOPLEFT", COL_X, y - 1)
+        y = y - 38
+
+        -- 2) Воскрешение
+        y = SectionHeader("Воскрешение", nil, y)
+        SoundRow("resurrectSoundOn", "Звук воскрешения",
+            "Играет, когда на тебя применили воскрешение (окно «Воскреснуть»).",
+            function() return (ns.Tools and ns.Tools.CurrentSoundName and ns.Tools.CurrentSoundName()) or "None" end,
+            function(v) ns.db.features.resurrectSound = v; ns.db.features.resurrectSoundOn = true end,
             function() if ns.Tools and ns.Tools.PlayResurrectPreview then ns.Tools.PlayResurrectPreview() end end)
 
-        -- (АРХИВ) «Звук воскрешения союзника» убран — в рейде эти события не ловятся.
-
-        -- === Секция «Изобилие» (тот же формат, что и «Воскрешение») ===
-        local ihdr = featuresPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        ihdr:SetPoint("TOPLEFT", 10, y)
-        ihdr:SetText(C("FFD100", "Изобилие"))
-        y = y - 28
-
+        -- 3) Изобилие
         local function AbundanceSoundName()
             local v = ns.db.features.abundanceSound
             if type(v) == "string" and v ~= "" then return v end
             return (ns.Tools and ns.Tools.DefaultSoundName and ns.Tools.DefaultSoundName()) or "None"
         end
-
-        local cbA
-        cbA = MakeCheck("abundanceSoundOn", "Звук изобилия",
-            "Играет при завершении события «Сбор изобилия» (дан-дан).")
-        MakeSoundSelector(
+        y = SectionHeader("Изобилие", nil, y)
+        SoundRow("abundanceSoundOn", "Звук изобилия",
+            "Играет при завершении события «Сбор изобилия» (дан-дан).",
             AbundanceSoundName,
-            function(v)
-                ns.db.features.abundanceSound = v
-                ns.db.features.abundanceSoundOn = true
-                cbA:SetChecked(true)
-            end,
-            function()
-                if ns.Tools and ns.Tools.PlaySoundByName then
-                    ns.Tools.PlaySoundByName(AbundanceSoundName())
-                end
-            end)
+            function(v) ns.db.features.abundanceSound = v; ns.db.features.abundanceSoundOn = true end,
+            function() if ns.Tools and ns.Tools.PlaySoundByName then ns.Tools.PlaySoundByName(AbundanceSoundName()) end end)
 
-        featuresPanel:SetHeight(featuresPanel:GetHeight() + 28 + 28 + 42 + 28 + 28 + 42 + 12)
+        featuresPanel:SetHeight(-y + 12)
     end
 
-    -- Панель «Макросы»: «Создать ВСЕ» по центру + матрица [иконка | РУ | ЕУ]
+    -- Плашка-спойлер как в «Скриптах» (атласы заголовков журнала заданий
+    -- Blizzard: 3-слайс Options_ListExpand_* + правый край = зеркало левого,
+    -- чтобы убрать вшитый значок; глиф common-button-list-plus/minus).
+    -- iconID — опц. иконка слева внутри бара; height — опц. высота бара.
+    -- Возвращает (frame, Update(collapsed)) для смены +/−.
+    local function MakeSpoilerBar(parent, title, iconID, height)
+        local hb = CreateFrame("Button", nil, parent)
+        local left = hb:CreateTexture(nil, "BACKGROUND")
+        left:SetAtlas("Options_ListExpand_Left", true)
+        local barH = height or left:GetHeight()
+        if not barH or barH < 1 then barH = 24 end
+        hb:SetHeight(barH)
+        left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT")
+        local right = hb:CreateTexture(nil, "BACKGROUND")
+        right:SetAtlas("Options_ListExpand_Left", true)
+        local a, b, c, d, e, f, g, h = right:GetTexCoord()
+        right:SetTexCoord(e, f, g, h, a, b, c, d)
+        right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT")
+        local mid = hb:CreateTexture(nil, "BACKGROUND")
+        mid:SetAtlas("_Options_ListExpand_Middle", false)
+        mid:SetPoint("TOPLEFT", left, "TOPRIGHT"); mid:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+        local hlL = hb:CreateTexture(nil, "HIGHLIGHT")
+        hlL:SetAtlas("Options_ListExpand_Left", true)
+        hlL:SetPoint("TOPLEFT"); hlL:SetPoint("BOTTOMLEFT"); hlL:SetAlpha(0.4); hlL:SetBlendMode("ADD")
+        local hlR = hb:CreateTexture(nil, "HIGHLIGHT")
+        hlR:SetAtlas("Options_ListExpand_Left", true)
+        local a2, b2, c2, d2, e2, f2, g2, h2 = hlR:GetTexCoord()
+        hlR:SetTexCoord(e2, f2, g2, h2, a2, b2, c2, d2)
+        hlR:SetPoint("TOPRIGHT"); hlR:SetPoint("BOTTOMRIGHT"); hlR:SetAlpha(0.4); hlR:SetBlendMode("ADD")
+        local hlM = hb:CreateTexture(nil, "HIGHLIGHT")
+        hlM:SetAtlas("_Options_ListExpand_Middle", false)
+        hlM:SetPoint("TOPLEFT", hlL, "TOPRIGHT"); hlM:SetPoint("BOTTOMRIGHT", hlR, "BOTTOMLEFT")
+        hlM:SetAlpha(0.4); hlM:SetBlendMode("ADD")
+        local xoff = 12
+        if iconID then
+            local ico = hb:CreateTexture(nil, "ARTWORK")
+            local isz = barH - 8
+            ico:SetSize(isz, isz)
+            ico:SetPoint("LEFT", hb, "LEFT", 6, 0)
+            ico:SetTexture(iconID)
+            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            xoff = 6 + isz + 8
+        end
+        local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        ht:SetPoint("LEFT", hb, "LEFT", xoff, 0)
+        ht:SetText(C("FFD100", title))
+        local tex = hb:CreateTexture(nil, "ARTWORK")
+        tex:SetPoint("RIGHT", hb, "RIGHT", -8, 0)
+        local function Update(collapsed)
+            tex:SetAtlas(collapsed and "common-button-list-plus" or "common-button-list-minus", true)
+            tex:SetVertexColor(1, 0.82, 0)
+        end
+        return hb, Update
+    end
+
+    -- Панель «Макросы»: матрица [иконка | РУ | ЕУ]; способности — сворачиваемые боксы.
     local macroPanel = CreateFrame("Frame", nil, container)
-    macroPanel:SetSize(520, 380)
+    macroPanel:SetSize(596, 380)
     macroPanel:SetPoint("TOPLEFT")
     do
-        local PANEL_W, PAD = 520, 12
+        local PANEL_W, PAD = 596, 12
         local USABLE = PANEL_W - PAD * 2
         local y = -10
 
@@ -1215,7 +1391,7 @@ local function CreateOptionsWindow()
         local info = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         info:SetPoint("TOPLEFT", PAD, y)
         info:SetPoint("TOPRIGHT", -PAD, y)
-        info:SetJustifyH("CENTER")
+        info:SetJustifyH("LEFT")
         info:SetText("Кнопки ниже создают готовые макросы паладина в " .. C("FFD100", "ОБЩИХ") ..
             " макросах. Верхний ряд у способности — " .. C("FFD100", "РУ") .. ", нижний — " .. C("FFD100", "ЕУ") ..
             " (под язык клиента). После создания открой " .. C("FFFF00", "/macro") ..
@@ -1259,8 +1435,8 @@ local function CreateOptionsWindow()
         end
 
         -- Инфо-иконка «i» с подсказкой «принцип работы».
-        local function MakeInfo(desc)
-            local b = CreateFrame("Button", nil, macroPanel)
+        local function MakeInfo(parent, desc)
+            local b = CreateFrame("Button", nil, parent)
             b:SetSize(32, 32)
             local t = b:CreateTexture(nil, "ARTWORK")
             t:SetAllPoints()
@@ -1278,52 +1454,79 @@ local function CreateOptionsWindow()
         local BTN_W, BTN_H, INFO_W, INNER_GAP, CELL_GAP = 116, 24, 32, 4, 8
         local CELL_W, ROW_STEP = INFO_W + INNER_GAP + BTN_W, 38
 
-        -- Один ряд кнопок (РУ или ЕУ) с переносом по ширине; возвращает нижний y.
-        local function LayoutRow(ab, langKey, startY)
+        -- Один ряд кнопок (РУ или ЕУ) внутри контейнера ability-body; перенос по
+        -- ширине; координаты относительно parent. Возвращает нижний y.
+        local function LayoutRow(parent, ab, langKey, startY)
             local x, yy, onLine = PAD, startY, false
             for _, v in ipairs(ab.variants) do
                 if onLine and (x - PAD + CELL_W) > USABLE then
                     x, yy, onLine = PAD, yy - ROW_STEP, false
                 end
-                local infoB = MakeInfo(v.desc)
-                infoB:SetPoint("TOPLEFT", macroPanel, "TOPLEFT", x, yy - (BTN_H - INFO_W) / 2)
-                local btn = CreateFrame("Button", nil, macroPanel, "UIPanelButtonTemplate")
+                local infoB = MakeInfo(parent, v.desc)
+                infoB:SetPoint("TOPLEFT", parent, "TOPLEFT", x, yy - (BTN_H - INFO_W) / 2)
+                local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
                 btn:SetSize(BTN_W, BTN_H)
-                btn:SetPoint("TOPLEFT", macroPanel, "TOPLEFT", x + INFO_W + INNER_GAP, yy)
+                btn:SetPoint("TOPLEFT", parent, "TOPLEFT", x + INFO_W + INNER_GAP, yy)
                 btn:SetText(v.label[langKey])
                 local mname = (langKey == "ru") and v.mru or v.meu
-                local body = v[langKey]
-                btn:SetScript("OnClick", function() CreateMacroSet({ { name = mname, body = body } }) end)
+                local mbody = v[langKey]
+                btn:SetScript("OnClick", function() CreateMacroSet({ { name = mname, body = mbody } }) end)
                 x, onLine = x + CELL_W + CELL_GAP, true
             end
             return yy - ROW_STEP
         end
 
-        -- Способности: шапка [иконка | название] в стиле «Звуки» (крупный
-        -- FFD100 + тонкая линия), иконку оставляем. Затем ряды РУ/ЕУ.
+        -- Каждая способность — сворачиваемый бокс-плашка (как в «Скриптах»),
+        -- повыше, чтобы вписалась иконка слева. Раскрытие показывает ряды РУ/ЕУ.
+        local macroStartY = y
+        local items = {}
+        local BARH = 32
+        local RelayoutMacros
         for _, g in ipairs(MACRO_GROUPS) do
             for _, ab in ipairs(g.abilities) do
-                local ic = macroPanel:CreateTexture(nil, "ARTWORK")
-                ic:SetSize(22, 22)
-                ic:SetPoint("TOPLEFT", PAD, y)
-                ic:SetTexture(ab.icon)
-                ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                local nm = macroPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-                nm:SetPoint("LEFT", ic, "RIGHT", 6, 0)
-                nm:SetText(C("FFD100", ab.name))
-                local line = macroPanel:CreateTexture(nil, "ARTWORK")
-                line:SetColorTexture(1, 1, 1, 0.15)
-                line:SetHeight(1)
-                line:SetPoint("TOPLEFT", PAD, y - 26)
-                line:SetPoint("TOPRIGHT", -PAD, y - 26)
-                y = y - 32
-                y = LayoutRow(ab, "ru", y)
-                y = LayoutRow(ab, "eu", y)
-                y = y - 10
+                local bar, Update = MakeSpoilerBar(macroPanel, ab.name, ab.icon, BARH)
+                local abody = CreateFrame("Frame", nil, macroPanel)
+                abody:SetWidth(PANEL_W)
+                local by = -6
+                by = LayoutRow(abody, ab, "ru", by)
+                by = LayoutRow(abody, ab, "eu", by)
+                abody:SetHeight(math.max(1, -by))
+                local item = { bar = bar, body = abody, Update = Update,
+                               collapsed = true, h = -by }
+                Update(true)
+                abody:Hide()
+                bar:SetScript("OnClick", function()
+                    item.collapsed = not item.collapsed
+                    Update(item.collapsed)
+                    RelayoutMacros()
+                end)
+                items[#items + 1] = item
             end
         end
 
-        macroPanel:SetHeight(-y + 16)
+        -- Раскладка боксов сверху вниз; расстояние между ними как в «Скриптах».
+        RelayoutMacros = function()
+            local yy = macroStartY
+            for _, it in ipairs(items) do
+                it.bar:ClearAllPoints()
+                it.bar:SetPoint("TOPLEFT", 8, yy)
+                it.bar:SetPoint("TOPRIGHT", -8, yy)
+                yy = yy - (it.bar:GetHeight() + 6)
+                if it.collapsed then
+                    it.body:Hide()
+                else
+                    it.body:Show()
+                    it.body:ClearAllPoints()
+                    it.body:SetPoint("TOPLEFT", 0, yy)
+                    yy = yy - it.h - 8
+                end
+            end
+            macroPanel:SetHeight(-yy + 16)
+            if macroPanel:IsShown() then
+                container:SetHeight(macroPanel:GetHeight())
+            end
+        end
+        RelayoutMacros()
     end
 
     -- Панель «Ссылки»: кнопки во всю ширину (как в «Подземельях»), кнопка
@@ -1550,9 +1753,9 @@ local function CreateOptionsWindow()
         { panel = profPanel,
           intro = "Профессии: баффы крафта, недельные знания и «Купи сумку»." },
         { panel = featuresPanel,
-          intro = "Удобства: телепорт, перезагрузка в игровом меню, метка танка, звук воскрешения." },
+          intro = "" },
         { panel = macroPanel,
-          intro = C(COLOR.PALADIN, "Паладин") },
+          intro = "" },
         { panel = linksPanel,
           intro = "Приветствую всех пользователей аддона, на данный момент я активно тестирую функции и дизайн, если вы найдете ошибки, то присылайте по ссылке указанной ниже." },
         { panel = dungeonPanel,
@@ -1591,7 +1794,9 @@ local function CreateOptionsWindow()
         -- У вкладки «Подземелья» общий intro пустой (описание живёт в панели),
         -- поэтому поднимаем область прокрутки ближе к заголовку окна. На
         -- остальных вкладках оставляем запас под многострочный intro.
-        local topY = (PANELS[index].panel == dungeonPanel) and -44 or -78
+        local topY = (PANELS[index].panel == dungeonPanel
+            or PANELS[index].panel == macroPanel
+            or PANELS[index].panel == featuresPanel) and -44 or -78
         scroll:SetPoint("TOPLEFT", 12, topY)
         if scroll.ScrollBar then
             scroll.ScrollBar:SetPoint("TOPLEFT", f, "TOPRIGHT", 6, topY)
@@ -1658,7 +1863,7 @@ local function CreateOptionsWindow()
     end
 
     MakeTab(1, 237447, "Скрипты")
-    MakeTab(2, 134376, "Инструменты")
+    MakeTab(2, 7214192, "Инструменты")
     -- иконка флакона — у самого заклинания, hardcode IconID был битым
     local phialTexture = ns.GetSpellTexture and ns.GetSpellTexture(1239755)
     MakeTab(3, phialTexture or 134756, "Профессии")

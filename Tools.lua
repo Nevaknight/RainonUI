@@ -348,11 +348,11 @@ local function CastSticker(key, sticker, spells, duration, sound)
     end)
 end
 
--- Сытная еда (пиршества): старые ID сохранены, добавлены текущие
--- (Midnight): Парад Луносвета, Празднество Харандара, Сытный парад
--- Луносвета, Сытное королевское жаркое.
-CastSticker("feast",      stFeast, { 462212, 462213, 462211, 457487,
-                                     1259659, 1259658, 1278895, 1232065 }, 10,
+-- Сытная еда (пиршества), текущие ID Midnight (устаревшее TWW убрано).
+-- Набор пиршеств сверен с Northern Sky RT + наше «Сытное королевское жаркое».
+CastSticker("feast",      stFeast, { 1259657, 1278915, 1259658, 1278929,
+                                     1237104, 1278909, 1259659, 1278895,
+                                     1232065 }, 10,
             SOUND.feast)
 CastSticker("food",       stFood,  { 457285, 457283, 457302, 455960 }, 7,
             SOUND.food)
@@ -502,9 +502,12 @@ registry.mail = txMail;      registry.healthstones = txStones
 registry.magetable = txTable; registry.summon = txSummon
 registry.mageeat = txMageEat
 
-local function CastText(key, entry, spells, duration, sound)
+-- condFn (необязательный) — вернуть false, чтобы НЕ показывать (напр. камни
+-- при полном запасе). Проверяется у ПОЛУЧАТЕЛЯ, по его собственному состоянию.
+local function CastText(key, entry, spells, duration, sound, condFn)
     ns.WatchGroupCast(spells, function()
         if not enabled(key) then return end
+        if condFn and not condFn() then return end
         entry:Activate(duration)
         ns.PlayFile(sound)
     end)
@@ -512,18 +515,20 @@ end
 
 CastText("repair",       txRepair, { 199109, 67826, 453942 }, 7,
          SOUND.repair)
--- Котёл: старые ID сохранены, добавлены текущие (Midnight):
--- Мракозарный котел для зелий (1240267), Котел для син'дорайских настоев (1240019).
-CastText("cauldron",     txCauldr, { 433293, 433294, 433292, 432877, 432878, 432879,
-                                     1240267, 1240019 }, 7,
+-- Котёл: текущие ID Midnight (устаревшее TWW убрано), сверено с Northern Sky RT:
+-- Мракозарный котел для зелий (1240267), Котел для син'дорайских настоев (1240195).
+CastText("cauldron",     txCauldr, { 1240267, 1240195 }, 7,
          SOUND.cauldron)
 -- Почта: старые ID сохранены, добавлены текущие (Midnight):
 -- Межпространственный почтовый сигнал (1272463), МЯЛЛ-И (54710).
 CastText("mail",         txMail, { 261602, 376664, 56472,
                                    1272463, 54710 }, 7,
          SOUND.mail)
+-- Камни здоровья (колодец душ 29893): не показываем, если у нас уже 3 камня.
 CastText("healthstones", txStones, { 29893 }, 7,
-         SOUND.healthstones)
+         SOUND.healthstones, function()
+             return (C_Item.GetItemCount(5512, false, true) or 0) < 3
+         end)
 CastText("magetable",    txTable, { 190336 }, 7,
          SOUND.magetable)
 CastText("summon",       txSummon, { 698 }, 7,

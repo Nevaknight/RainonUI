@@ -1,6 +1,6 @@
 -- =========================================================================
 -- RainonUI / Core: база данных, события, общие помощники.
--- Адаптировано под WoW Midnight 12.0.x (Interface 120007).
+-- Адаптировано под WoW Midnight 12.1 (Interface 120100).
 -- =========================================================================
 
 local ADDON_NAME, ns = ...
@@ -328,9 +328,14 @@ function ns.IterateGroup()
 end
 
 -- -------------------------------------------------------------------------
--- Слежение за кастами группы (замена CLEU-триггеров WeakAuras:
--- COMBAT_LOG_EVENT в Midnight аддонам недоступен, используем
--- UNIT_SPELLCAST_SUCCEEDED по юнитам группы)
+-- Слежение за кастами группы (замена CLEU-триггеров WeakAuras).
+-- В Midnight 12.0 COMBAT_LOG_EVENT аддонам недоступен, а spellID ЧУЖОГО
+-- каста в UNIT_SPELLCAST_SUCCEEDED — секретное значение (по нему нельзя
+-- искать в таблице), поэтому старый способ «слушать юнитов группы» умер.
+-- Решение (как у Northern Sky RT, но своим каналом, без внешних библиотек):
+-- каждый ловит ТОЛЬКО свой каст (для 'player' spellID не секретный) и тихо
+-- рассылает его группе аддон-сообщением; остальные с RainonUI ловят и
+-- показывают стикер. Игрокам без аддона ничего не приходит, в чат — тоже.
 -- -------------------------------------------------------------------------
 local castWatchers = {}  -- [spellID] = { fn, ... }
 
@@ -344,17 +349,34 @@ function ns.WatchGroupCast(spellIDs, fn)
     end
 end
 
-local function IsGroupUnit(unit)
-    if unit == "player" or unit == "pet" then return true end
-    local prefix = string.sub(unit, 1, 4)
-    return prefix == "part" or prefix == "raid"
+local COMM_PREFIX = "RainonUI"
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(COMM_PREFIX)
 end
 
-ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
-    if not unit or not IsGroupUnit(unit) then return end
+local function FireWatchers(spellID)
     local list = castWatchers[spellID]
     if not list then return end
-    for i = 1, #list do pcall(list[i], unit, spellID) end
+    for i = 1, #list do pcall(list[i], spellID) end
+end
+
+-- Свой каст → рассылаем группе (для 'player' spellID не секретный).
+ns.RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
+    if unit ~= "player" then return end
+    spellID = tonumber(spellID)
+    if not spellID or not castWatchers[spellID] then return end
+    local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or nil)
+    if not channel then return end
+    pcall(C_ChatInfo.SendAddonMessage, COMM_PREFIX, tostring(spellID), channel)
+end)
+
+-- Приём от других игроков с RainonUI. Канал RAID/PARTY — приходит только от
+-- своей группы. Своё же эхо отсекаем, чтобы не показывать себе свой каст.
+ns.RegisterEvent("CHAT_MSG_ADDON", function(prefix, msg, _, sender)
+    if prefix ~= COMM_PREFIX then return end
+    if sender and Ambiguate(sender, "short") == UnitName("player") then return end
+    local spellID = tonumber(msg)
+    if spellID then FireWatchers(spellID) end
 end)
 
 -- -------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.4.3
+## Version: 1.4.5
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB
 ## OptionalDeps: MythicDungeonTools
