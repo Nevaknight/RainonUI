@@ -50,7 +50,10 @@ ns.defaults = {
         -- Валюта
         curr_moxie = true,
         -- Прочее
-        combattimer = true, bonusroll = true, keystone = true,
+        combattimer = true,
+        -- Муверы окон Blizzard (галки во вкладке «Удобства» → «Общее»),
+        -- по умолчанию ВЫКЛ — окна остаются на стандартных местах.
+        bonusroll = false, keystone = false,
     },
     positions = {
         combattimer  = { x = 466, y = -226, scale = 1 },
@@ -62,6 +65,7 @@ ns.defaults = {
         keystone     = { x = 0,   y = 40,   scale = 1 },
         tankmark     = { x = 0,   y = 160,  scale = 1 },
         stickers     = { x = 0,   y = 300,  scale = 1 },
+        dungeonannounce = { x = 0, y = -120, scale = 1 },
     },
     -- Мультиперсонажный ростер для окна знаний/зарядов (аккаунтный).
     -- [GUID] = { name, realm, classFile, lastUpdate, profs = {...},
@@ -89,6 +93,11 @@ ns.defaults = {
         abundanceSound = nil,        -- ИМЯ звука из LibSharedMedia (nil → дефолт)
         abundanceEventToastID = 384, -- eventToastID плашки завершения
         abundanceWidgetSet = nil,    -- uiWidgetSetID (запасной идентификатор)
+        -- «Подземелья»: анонс типа урона танку по таймерам BigWigs.
+        -- Виджет (иконка танка | тип урона | цифры) появляется за 5 сек до удара.
+        dungeonAnnounceOn      = true,  -- показывать виджет-анонс (галка «ВКЛ анонс»)
+        dungeonAnnounceSoundOn = true,  -- играть звук на анонсе (галка «Звук анонса»)
+        dungeonAnnounceSound   = nil,   -- ИМЯ звука LSM (nil → «RainonUI: Босс (Alice)»)
         -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
         craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
         -- Режим «крестики скрытия»: на скрываемых элементах UI показываются

@@ -136,10 +136,8 @@ local TOOLS_OPTIONS = {
     { key = "engcloak", name = "Инженерный плащ", desc = "Кулдаун инженерного плаща." },
     { key = "mageeat",      name = "Кушай еду мага",
       desc = "Напоминание поесть еду мага, если здоровье ниже 60% в рейде." },
-    { key = "bonusroll", name = "Бонусная добыча",
-      desc = "Перемещает окна бонусной добычи: бросок, выигранный предмет и выигранное золото (BonusRollFrame, BonusRollLootWonFrame, BonusRollMoneyWonFrame) — один общий бокс. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
-    { key = "keystone", name = "Окно эпохального ключа",
-      desc = "Перемещает окно «Вставьте эпохальный ключ» (ChallengesKeystoneFrame). Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
+    -- «Бонусная добыча» и «Окно эпохального ключа» переехали во вкладку
+    -- «Удобства» → «Общее» (галки-муверы, по умолчанию выкл).
 
     { header = "Требуют RainonUI" },
     { text = "В патче 12.1 вам требуется синхронизировать передачу сообщений" ..
@@ -213,6 +211,12 @@ local FEATURES_OPTIONS = {
              " кнопка телепорта в один клик, если он изучен." },
     { key = "reloadMenuButton", name = "Кнопка перезагрузки",
       desc = "Добавляет кнопку «Перезагрузить UI» сверху игрового меню (Esc)." },
+    -- Муверы окон Blizzard (ключи в ns.db.tools, а не features — обрабатываются
+    -- особо в featuresPanel getValue/onToggle). По умолчанию выкл.
+    { key = "bonusroll", name = "Бонусная добыча", tools = true,
+      desc = "Перемещает окна бонусной добычи: бросок, выигранный предмет и выигранное золото (BonusRollFrame, BonusRollLootWonFrame, BonusRollMoneyWonFrame) — один общий бокс. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
+    { key = "keystone", name = "Окно эпохального ключа", tools = true,
+      desc = "Перемещает окно «Вставьте эпохальный ключ» (ChallengesKeystoneFrame). Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
     -- «Метка танка», «Воскрешение», «Изобилие» — кастомными секциями ниже.
 }
 
@@ -1169,8 +1173,17 @@ local function CreateOptionsWindow()
     -- Панель «Удобства»: телепорт, кнопка перезагрузки, метка танка
     local featuresPanel = BuildChecklist(container,
         FEATURES_OPTIONS,
-        function(key) return ns.db.features[key] end,
+        function(key)
+            -- Муверы окон (bonusroll/keystone) живут в ns.db.tools, остальное в features.
+            if key == "bonusroll" or key == "keystone" then return ns.db.tools[key] end
+            return ns.db.features[key]
+        end,
         function(opt, state)
+            if opt.tools then
+                ns.db.tools[opt.key] = state
+                if ns.Tools and ns.Tools.OnToggle then ns.Tools.OnToggle(opt.key, state) end
+                return
+            end
             ns.db.features[opt.key] = state
             if opt.key == "teleportPrompt" and not state and ns.Teleport then
                 ns.Teleport.Hide()
@@ -1630,7 +1643,7 @@ local function CreateOptionsWindow()
         local DLINKS = {
             { name = "Аддон",           url = "https://www.curseforge.com/wow/addons/mythic-dungeon-tools" },
             { name = "Плагин",          url = "https://www.curseforge.com/wow/addons/mdthelper" },
-            { name = "Дополнить аддон", url = "" },
+            { name = "Дополнить аддон", url = "https://forms.gle/uFkTUcRRTctfKxCLA" },
         }
         for _, link in ipairs(DLINKS) do
             local btn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
@@ -1663,19 +1676,19 @@ local function CreateOptionsWindow()
         y = y - 22
 
         -- === Секция «Недельные маршруты» ===
-        Header("Недельные маршруты", y); y = y - 30
+        Header("Недельные маршруты от @Rupi - |cFF9146FFhttps://www.twitch.tv/rupidk|r", y); y = y - 30
         -- route — строка !~MDT2~ «Недельного маршрута» (из страницы подземелья
         -- `_WIKI/MDT_TOOLTIP_DUNGEON/<Название>.md`, таблица «Код для маршрута»).
         -- Пусто = маршрут ещё не задан (кнопка сообщит об этом).
         local DUNGEONS = {
-            { name = "Алтарь Клыков",      tele = 1286812, route = "!~MDT2~VY69TsMwFIWVkDIhdUMtLH0GOjBDE2hoRcOPEOrmxtdVkGOj2I5apkRVxcbETgVSxdgFid88g/Mw7LhVF4Y73HPO/e55PeaDGwilyFoqwp1+KvbbtHnXl+ddhDFnV5CIiLO6HQchpzwJEAUpwWeEP3eRkry1VCM2/O398/HI8VJEFcw7oUoSYDJQlFq99XKhBhRSoFYADOLxgRDRkMXGENnZOuIqNgTODKk28wVQU9IUyS3v1oBEPq/t5lY1r2xNnMpmbWdqb1hOxVt1OCKkCYRs55YrYSSv6/pJF41yor91ob/Ke73QP/q9fGjsneCIkChUVI6rfpgAkoAPxy/tkCIhzGfbZSiGUz3Tb/rDHBVmFp7J0fhSP5aZIX2uxGLJLrM/" },
-            { name = "Арена Шрама Бездны", tele = 1286804 },
-            { name = "Гробница Королей",   tele = 1286831 },
-            { name = "Закоулок Душегубов", tele = 1286809 },
-            { name = "Рубиновые Омуты",    tele = 393256  },
-            { name = "Храм Сетралисс",     tele = 1286828 },
-            { name = "Слепящая Долина",    tele = 1286801 },
-            { name = "Берлога Налоракка",  tele = 1286807 },
+            { name = "Алтарь Клыков",      tele = 1286812, route = "!~MDT2~VZLLbtNAGIU1vowd33JrwAVeoiqbLKEJEFrR0EoVW8ceB4NjV75Uyc4zNq2Q2PECVeKgLhECqbCAV7Afhj0TiEK88MLnnP8/vz7NzXPLsW3HjN1o1jmIHetwb/j27GHwundqnRwZluV7ZygIHd/bZfz+heHG6NOhGQcB8qJh7LrC8frnNB656AK5YIg8NJk9CkNn7E2oESYv15Fe7I2R7w2sqZ4PQuQiM6J7sdA/p4vCj0tIeChcQYEDDM9KGPRN3/WDJ7a9j2xbThvNVg426krrIohFgYi1JcDMVnqf6jUhU5WOLCfU4zYzXToFiaoJWau505ZWJrsZtEd0kCiyQLS6nOr6nbsLOdPv67v6Pf2BRFhmq3ofzbcKu0jDIGcJYBj6KZUjbTvfJLu0gXknQLEmKZhh6eX5JrnKMqmqyApmWSLJeYeuWrvG3qqlSYU6BguWKKr6/5x/fBYVLmoKeI4ldW1ewVKjV1ZYqESWRAz4S8BwPAvzCgs1E8Qa5C8peFWri5jJKwDUrK61W5A06hLmlmJS4dHGoEH3JjeAQB4mKtnpiJiTkgoYPpGT4V9haLgoitDAs/35kRFH/sFKdbzx7+OKb025XoSmUe8kPnee+qM39A2FycAMkBEh6/Fs8cx0jTCkOdjzjAl6UVyXafGruC2vih/F5z7NuZNXenFdfCu+lGn5vrgtvpdZ+aH4WSbF1z8=" },
+            { name = "Арена Шрама Бездны", tele = 1286804, route = "!~MDT2~XVLLbtNAFNWMH3HavOwoqUH8AMsqC5QlbQKEVm0ACbF17HFkcOzKjyjZzR0jISQWfELV0JQFC4RAKizgF8Yfw54xRGnCauaee865M2fm42PHc13PTv1k3jpMPefI3T9x0rvTe/NXB8eW44TBcxLFXhjcwmF/avkpWR7ZaRSRIBmmvl8/XRXP0pFPpsRHQxKQyfx+HHvjYCIaMX2yovTSYEzCYODMzMUgJj6xE+EL9f6ZMIrfX6GsUq1hVqmqUC1Rg/bt0A+jB67bIa6rQG2xAoqySzRACqs3LjZYHVIGdIkyhCWcIQlLxU7OJITXyq7QLncBYSYrdUCSWCqA1h7uqEOWSIDVNVhM6xBZYA1ANeGvgqwDagEyNoSF8wcNJBVUBbQNqevenLAr3Fsg39yjIJh3GMLmbUBi7k4Zs/KOaTJVaYNkiGj+Ma39YsKlzppGG/B/uVQEX5KXOmvoEtNKWyE1QdujmJW0Twg0TCVQBRmjrcx0qCu0SduAVLpHDahdIShhUFWo6FAzWFXbSk+B3SWiwku8kE63khv+LYaWT5KEDAI3vDi20iQ8LFAvGP8+3eo7M7mXkFnSe5qeeQ/D0UvxH2I6sCNiJcQ5mC8e2b4Vx4Kn9gJrQk74eZ7xX/w6f8N/8M99wfMnL0x+zr/xL3mWv+XX/Hv+On/Hf+aUf/0D" },
+            { name = "Гробница Королей",   tele = 1286831, route = "!~MDT2~VVFNb9NAENWu185n00RtWvN1AIo4owipudIEGlpoAAlxdezZymjrrfwRpZyybhCtxIGfUCUtcEQIpMIB/sL6x3BnDVHiHEbamXnvzczbz48dl1LXjlh4VN+KXGfHeWNv8u3+5v3uk13Lcbj3EvzA5d4VzNt9i0VwsWNHvg9e2I0Yq+5NkxdRj0EfGHo2LbQibx+413EGtU4ADOxQiYhq+1Cxgg8TFGsEnxg5hEle19o2Z9x/SGkDKD2fZum7CfhtuVCslIhAepzLn2eQDdBHRDcQEVgTZDxjNRXPEGgyg9JeA5YFqsxrqXQDiiM1XSsIlFVtwpJAZYFKCp0XKCdQhkPpeAZtKtXqnJvuQ6l5J0bYvHpqpHcVdC1XmyOse6l+Taj+SalaK5aXKssKT7SL1RiTeqwT8+5s2n8rVmKMPtZjbKgOXrBlRWjrsaGvDRcdWRNoVaB1tcQn85pA5nUVGypuqLil4nbmnNSniWmq6s3M2NSs7r+kazEIQ+h4lI93rSjkW2nV9fb/7C30nQFphTAIW8+jQ/cR771Wfx0MO7YPVgjOg6PJts2sIFA4o+VZB/BUniXH8re8TN7Jn/JLW+HYwStTnsnv8mtynJzKS/kjGSXv5a9kKL/9BQ==" },
+            { name = "Закоулок Душегубов", tele = 1286809, route = "!~MDT2~VZJPb9MwGMZlJ07SJk3TTQPvDxzhCqoE9AhrB2UT60BDcMwapwqkydQk03qz3awIiQMfYWLdnwMHhEAaHOArJB+GO+5USnv0+z7++Xke+eKp47mu1078uL+0nnjO5s7G7m58cOft63vJlu04YfCS9CIvDJZh2Diw/YScbbaTXo8EcSvxfbg9ObxI9nxyQHzQIgHp9h9GkdcJumIR0Z2JpJ4EHRIGTecQHzcj4pN2LLgMNvYFKPp4AbiMIFc1icsSYkDjEDTaoR/2Nly3Sly3TE16DlKrslCGHCkS1woykxWGJqqxpkbwbQbOwBBArSCpUKAkDqDMAKIzsCo5BUzRUkVCsjQDqAkEoqfgyCiZRR2mxYKhS1xRVfbfirtXJaMlBq4zgG9N5+PHq+QzoJBKFK8cQQnICK+y2Qg1otHCULlaIVoU+a4Jxho91zl+gO9XmGLQGZzrmiKilQr7qMTU0ZRUEw6sVNUKSpkBk+vF0fTW+F6JF40KU61ULxWNfyv77tiBlZYrljku8mSBAYOXrbmGR6bwtMhkfSjJSFHBXLGn+hCv4FW8hpfxDXyzNBetSkxRtcGBNJor0xgIUIWhMkOjuQZLHAq5qi0ytXU1b9k+iWPSDNzw05adxOH6eOoFnT/bc3vnUK7H5DCuP0/2vcfh3hvxjSLabPeIHRPnUf/kSdu3o0jolHpgd8mz7DgfZL+zy/xd9jP70hA6v/sKZ8fZ9+xrPsjfZ5fZjzzNP2S/cpp9+ws=" },
+            { name = "Рубиновые Омуты",    tele = 393256, route = "!~MDT2~VZHLbtNQEIZ1bMe3GsilqcwrsCJEQsq2TQqhhQQqVWwde05ldGpXvkTtzuNYVEhIvEIV0gI7hEAqLOAVjh+GPSdRFJLlmf+bf+b88/mZ51PquylLLpp7qe8djI9bu8+PHo99GBw6nhcGxxDFfhjcl8KhG7IwGjoMkgT6AQ2nh06ahHvzqh+c/B1s6N650hs7LIXrAzeNIgiSYcqYPlg+jtIRgzEw8nJZ6KbBCYSB6LMf9GNg4CZiLOq9M9EWf/hEkEiFQWRJznWiIOktpu1T2gZKzczKZgSFplaUXNaW4lzqwLUqWrM1vg1KVnlrP7If2q1mvTFd0R3Ba0imK5aO2mAgmW0hMXNVtnIirVm3QQiSiYqF8pp9B2Z3BY+SJbb/T1MqaNlEYqGyojujhYliommhsaLn/I1tI7k3N9IsVHXcWapOazF54//VQiKKXCtIRVHrSG5quFNHaSMFE43qpGKIMdpsI4tqrmu1orll3Wkg+SJlcqZk20hql5pumI3qdlOsIOLdCKmbwHnSfZWe+U/C0RtxqjjruxE4CXi7Fx+fusyJY3FJtRs4p/CCX5UT/offlpf8F//aExw7fW3zK/6Dfysn5Tt+y3+WRfme/y4z/v0f" },
+            { name = "Храм Сетралисс",     tele = 1286828, route = "!~MDT2~VZJBb9MwHMVlx3GytusK3VDQBEjjBBKHqaceYS1QNrECEnBNE3sKcpOpSab21r9XCZA48BEmWjqOCIE0OMBXcD4Md5ytdO3R7/9+70lP/vLEDzgPvFQkg42dNPB3+YC3XnXvh6y9vef6fhS+ZL04iMLrOGoeuSJln3e9tNdjYdJOhSjszx4v0o5gR0ygZzOhkYYHLApbfn+9FTPBvESHQKF5qKn44xRJ+xoG2wBMgJhQbHqRiHoPOa8xzseGXLGxrKzN1FyrM82sb2C5WjaAErBMScwFqsbGzk1Azi1Ac6quuVMEqxSQBcgGZMAlwjs15mwBmiK4SgFbYNhgLBSeX/FpMWctG2hJh28BWaisMwqWxqtFSS1LUtMGqwR0IYPzKQVqAbGleUnWL5qNEpiTMpCqDt4EPMdycOpsDtck+s+423lfdViRZqEMaLK0VmWEDUTWdH8Z8FhHIefOwgj5dBPH0eo9ibBzY366WG2ytJb2EEN7sAbwZHmru++oZZulQnHlClDn9ghhYrTPHW1XsCRhrZBHn/bcNIl2cjUID/7uL939PmkkrJ80nqeHwaOo80b/injY8nrMTZj/YDB+7Ak3jrWPNkK3y56qk+xY/VFn2Vv1S31tap/ovnbUifqhvmXH2Xt1pn5mo+yD+p0N1fd/" },
+            { name = "Слепящая Долина",    tele = 1286801, route = "!~MDT2~XZFLb9NAFIVle+zEj7QhpXAr3khACxsgvLKEJkBoRFMQpbxx7HEwcuzKjyrZeRyqUAn+Q5UKC3YIgVRYwF+wfwx7xlUUNSxnzpnvnHvnc0PVdcdexa5nOvYc6zQ1x3Lcpmph38d123CGDTXwncXs1rTbf5cndL2Lqj7u+tUHwbp5x2m9xZrvhYuBqS91Fy++WWjMBytuUNtQrQDHS1rgutj2m4FloeXR4WHQsvAGtpgmtnGnd9PzzLbdoYIXrows1cBuY8emYTCse9iiGbQrQbV1CvI+xkxfVgrsezgCR+EYnICTcApOw3Eu4hAirECNe51vG0YZG0bMRKUZdgCXoQyP4DGswho84SJJ5IkokNzImzkrOGY34QpchWtwHW5wES8ggniSE4i4D1nGFFmcpsgFOA8X4AychXMwjwg3ZlUoTSC8HA7H74xWGRcI84UhMEdTXsAzeAlP4TkXKTIiPE8kIcyRYn4clTUq4+G+4AouESbOkQN5IkkTPsMQNw+VDs7OKBHiYnYLXsFrUKEFBmjQBh1wPtuZFEmykmXJY2qltTeOmGcHeZGqhakxNgML4WHC5PqI5XZ4wimEHanqpazQJyZkw4ll50I5jIV+YUrhoumiEqL/FiyH93TTMEwtsPzebF1zsepj/VZv565mqZ5Hv1yo2moH30+2037yJ9lNB8mv5GuN+qzOGiTbyY/kW9pPt5Ld5Gf6Lv2Q/E7D5Ps/" },
+            { name = "Берлога Налоракка",  tele = 1286807, route = "!~MDT2~VZLNbtNAFIU19vgvdZLaJY15jCpikSU0aQmtSCgIsXXscWTk2FFsV81u7qQIIbHiCUrapFkiBFJhAa9gPwx7JiUK8epq5t7vnNGZu3zm+p7nO2mQTGqHqe+edF89GvlHk/jAPju1XTcKX5Nx7EfhQyHqOVEQjXt2QJKEdEIvmp3aaRIdrm79cPCnW+i7F7h9bgcpWZw46XhMwqSXBoHZXR9epv2AnJMA9UhIhpPHcewPwiFvxPTFeqSVhgMShVzJ+tyJSUCchD8EzPaIC8WflghEgWFRvMSiLGHavrc/8rwG8TwDhCq1LEBLRAWQRKYqGCTLogbDUpXp5fX0arZJuJQiMEUWWUnDoG4pNYhBq8zc41LSAoFsTEuqVqUbusl5vDKSbxFIAmgi7N6fler/B3n9BrneMmyQXUAGnQtML4nvTKP2YA9TA/Qt3yZZyMwwDbqFcSdWrWhUoXOZCUgBpDIkbKAmd9EA3WyIFVMCJE9VWVE5w0GVydK6bx+sfDQmYa6mlxWQSiAUMtRAmRVikgDNCtmYgBY7TBTKgPYBVQDVARWiuakwQdRBrPNSiON2h/9DmaM6r4VoKoDrgPc5MFdobaP3LxQeE20l5CJpnaUj/zjqv+VLEdOOMyZ2Qtwnk+unTmDHMd8ZuRXaQ/I8u8qn2e/sLn+f/cy+tPlcMHxjZVfZ9+xrPs0/ZHfZj/wy/5j9ymn27S8=" },
         }
         local COLS, COL_GAP, ICON, ROWH = 2, 10, 22, 30
         local cellW = (USABLE - COL_GAP * (COLS - 1)) / COLS
@@ -1705,13 +1718,91 @@ local function CreateOptionsWindow()
         end
         local rows = math.ceil(#DUNGEONS / COLS)
         y = y - rows * ROWH - 12
+        -- Низ MDT-контента: плёнка «Модуль выключен» кроет ровно до сюда, чтобы
+        -- секция «Оповещение танка» ниже оставалась активной (к MDT не привязана).
+        local mdtBottomY = y
+
+        -- === Секция «Оповещение танка» (анонс типа урона по таймерам BigWigs) ===
+        -- Независима от «ВКЛ модуль» (MDT). Галка «ВКЛ анонс», затем строчка звука
+        -- (галка + селектор во всю ширину, как в «Удобствах»). Дефолт — «RainonUI: Босс».
+        Header("Оповещение танка", y); y = y - 30
+
+        local adesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        adesc:SetPoint("TOPLEFT", PAD, y)
+        adesc:SetPoint("TOPRIGHT", -PAD, y)
+        adesc:SetJustifyH("LEFT")
+        adesc:SetText("За 5 секунд до удара показывает виджет: иконка танка, тип урона и " ..
+            "обратный отсчёт. Таймеры берём из " .. C("FFD100", "BigWigs") ..
+            ". Двигается в режиме редактирования (X, Y, размер).")
+        y = y - math.ceil(adesc:GetStringHeight()) - 8
+
+        -- Галка «ВКЛ анонс» (по умолчанию включена).
+        local annCB = ns.MakeCheckButton(dungeonPanel)
+        annCB:SetSize(26, 26)
+        annCB:SetPoint("TOPLEFT", PAD, y)
+        annCB:SetChecked(ns.db.features.dungeonAnnounceOn ~= false)
+        annCB.Text:SetText("ВКЛ анонс")
+        annCB.Text:SetFontObject("GameFontHighlight")
+        annCB:SetScript("OnClick", function(self)
+            ns.db.features.dungeonAnnounceOn = self:GetChecked() and true or false
+        end)
+        y = y - 34
+
+        -- Строчка «Звук анонса»: галка слева + селектор в колонке справа (высота
+        -- SELH, как у звуковых строк «Удобств»). Дефолт — «RainonUI: Босс».
+        do
+            local SELH = 39
+            local probe = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            probe:SetText("Звук анонса"); probe:Hide()
+            local COL_X = PAD + 26 + 4 + math.ceil(probe:GetStringWidth()) + 16
+            local SELW = (PW - PAD) - COL_X
+
+            local sndCB = ns.MakeCheckButton(dungeonPanel)
+            sndCB:SetSize(26, 26)
+            sndCB:SetPoint("TOPLEFT", PAD, y - (SELH - 26) / 2)
+            sndCB.Text:SetText("Звук анонса")
+            sndCB.Text:SetFontObject("GameFontHighlight")
+            sndCB:SetChecked(ns.db.features.dungeonAnnounceSoundOn and true or false)
+            sndCB:SetScript("OnClick", function(self)
+                ns.db.features.dungeonAnnounceSoundOn = self:GetChecked() and true or false
+            end)
+
+            local function AnnSoundName()
+                return (ns.Tools and ns.Tools.DungeonAnnounceSoundName
+                    and ns.Tools.DungeonAnnounceSoundName()) or "None"
+            end
+            local function annOpts()
+                local names = (ns.Tools and ns.Tools.GetSoundNames and ns.Tools.GetSoundNames()) or {}
+                local opts = {}
+                for i, n in ipairs(names) do opts[i] = { text = n, value = n } end
+                if #opts == 0 then opts[1] = { text = "—", value = "None" } end
+                return opts
+            end
+            local annSel = MakeArrowSelector(dungeonPanel, SELW, AnnSoundName,
+                function(v)
+                    ns.db.features.dungeonAnnounceSound = v
+                    ns.db.features.dungeonAnnounceSoundOn = true
+                    sndCB:SetChecked(true)
+                end, annOpts,
+                function(v)
+                    ns.db.features.dungeonAnnounceSound = v
+                    ns.db.features.dungeonAnnounceSoundOn = true
+                    sndCB:SetChecked(true)
+                    if ns.Tools and ns.Tools.PlayDungeonAnnouncePreview then
+                        ns.Tools.PlayDungeonAnnouncePreview()
+                    end
+                end, SELH)
+            annSel:SetPoint("TOPLEFT", dungeonPanel, "TOPLEFT", COL_X, y)
+            y = y - SELH - 14
+        end
+
         dungeonPanel:SetHeight(-y + 12)
 
-        -- Серая «плёнка» на всё ниже галки при выключенном модуле:
-        -- перехватывает клики и гасит кнопки/поля.
+        -- Серая «плёнка» ТОЛЬКО на MDT-часть (от галки «ВКЛ модуль» до конца
+        -- «Недельных маршрутов»); секция «Оповещение танка» ниже — вне плёнки.
         local film = CreateFrame("Frame", nil, dungeonPanel)
         film:SetPoint("TOPLEFT", dungeonPanel, "TOPLEFT", 0, filmTopY)
-        film:SetPoint("BOTTOMRIGHT", dungeonPanel, "BOTTOMRIGHT", 0, 0)
+        film:SetPoint("BOTTOMRIGHT", dungeonPanel, "TOPRIGHT", 0, mdtBottomY)
         film:SetFrameLevel(dungeonPanel:GetFrameLevel() + 20)
         film:EnableMouse(true)
         local ftex = film:CreateTexture(nil, "OVERLAY")

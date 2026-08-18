@@ -1888,6 +1888,174 @@ ns.RegisterEvent("RESURRECT_REQUEST", function()
 end)
 
 -- =========================================================================
+-- АНОНС ТИПА УРОНА (вкладка «Подземелья»): по таймеру способности из BigWigs
+-- за 5 секунд до удара показываем виджет: [иконка роли танка | тип урона | цифры].
+-- Таймер считает 5→0. Ловим так же, как «Перерыв» — через сообщения BigWigs,
+-- только слушаем БАРЫ способностей (BigWigs_StartBar) и сверяем spellID с нашей
+-- таблицей. spellID уникальны между подземельями → в Гробнице не поймаем таймеры
+-- Храма Сетралисс и наоборот (в чужом подземелье его spellID просто нет в таблице,
+-- да и BigWigs грузит модуль только текущей зоны).
+--
+-- Данные ведёт Миша на страницах _WIKI/MDT_TOOLTIP_DUNGEON/<Название>.md
+-- (таблица «Таблица для BigWigs», колонки SPELL_ID | Тип урона). Переносим сюда
+-- как [SPELL_ID] = "Тип урона" под соответствующий якорь `DUNGEON: <название>`.
+-- =========================================================================
+local ANNOUNCE = {
+    -- DUNGEON: Алтарь Клыков
+    -- DUNGEON: Арена Шрама Бездны
+    -- DUNGEON: Гробница Королей
+    -- DUNGEON: Закоулок Душегубов
+    -- DUNGEON: Рубиновые Омуты
+    [372858] = "Магический",   -- Мелидрусса Истощенная Холодом
+    -- DUNGEON: Храм Сетралисс
+    -- DUNGEON: Слепящая Долина
+    -- DUNGEON: Берлога Налоракка
+}
+
+local ANNOUNCE_LEAD = 5   -- за сколько секунд до удара показываем (и с какой цифры)
+
+-- Имя звука анонса (nil в БД → голос «Босс»).
+local function DungeonAnnounceSoundName()
+    local v = ns.db and ns.db.features and ns.db.features.dungeonAnnounceSound
+    if type(v) == "string" and v ~= "" then return v end
+    return "RainonUI: Босс (Alice)"
+end
+ns.Tools.DungeonAnnounceSoundName = DungeonAnnounceSoundName
+ns.Tools.PlayDungeonAnnouncePreview = function() PlaySoundByName(DungeonAnnounceSoundName()) end
+
+-- Иконка анонса (fileID 535594).
+local ANNOUNCE_ICON = 535594
+
+-- Виджет-анонс: [иконка танка] [тип урона] [цифры]. Позиция/размер — мувер
+-- «dungeonannounce» (родной Edit Mode: X/Y/размер, как у бонусной добычи).
+local ANNOUNCE_W, ANNOUNCE_H = 280, 54
+local announce = CreateFrame("Frame", nil, UIParent)
+announce:SetSize(ANNOUNCE_W, ANNOUNCE_H)
+announce:SetFrameStrata("HIGH")
+announce:Hide()
+
+announce.Icon = announce:CreateTexture(nil, "ARTWORK")
+announce.Icon:SetSize(ANNOUNCE_H, ANNOUNCE_H)
+announce.Icon:SetPoint("LEFT", announce, "LEFT", 0, 0)
+announce.Icon:SetTexture(ANNOUNCE_ICON)
+announce.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+announce.Timer = MakeText(announce, 30, { 1, 0.9, 0.4 })
+announce.Timer:SetPoint("RIGHT", announce, "RIGHT", -6, 0)
+
+announce.Text = MakeText(announce, 22)
+announce.Text:SetJustifyH("LEFT")
+announce.Text:SetWordWrap(false)
+announce.Text:SetPoint("LEFT", announce.Icon, "RIGHT", 8, 0)
+announce.Text:SetPoint("RIGHT", announce.Timer, "LEFT", -8, 0)
+
+registry.dungeonannounce = announce
+
+local function ApplyAnnouncePos() PositionDisplay(announce, "dungeonannounce") end
+ApplyAnnouncePos()
+CreateMover("dungeonannounce", "Оповещение танка", ANNOUNCE_W, ANNOUNCE_H, ApplyAnnouncePos)
+
+local announceTicker
+local function HideAnnounce()
+    if announceTicker then announceTicker:Cancel(); announceTicker = nil end
+    announce._activeText = nil
+    announce._expires = nil
+    announce:Hide()
+end
+
+local function ShowAnnounce(dmgType, seconds, barText)
+    announce._activeText = barText
+    announce._expires = GetTime() + seconds
+    announce.Text:SetText(dmgType or "")
+    announce.Timer:SetText(tostring(math.ceil(seconds)))
+    announce:Show()
+    if ns.db and ns.db.features and ns.db.features.dungeonAnnounceSoundOn then
+        PlaySoundByName(DungeonAnnounceSoundName())
+    end
+    if announceTicker then announceTicker:Cancel() end
+    announceTicker = C_Timer.NewTicker(0.1, function()
+        local remain = (announce._expires or 0) - GetTime()
+        if remain <= 0 then HideAnnounce() return end
+        announce.Timer:SetText(tostring(math.ceil(remain)))
+    end)
+end
+
+-- Отложенные показы (бар длиннее 5 сек) — по тексту бара, чтобы отменять по
+-- BigWigs_StopBar (он приходит с текстом бара, а не с ключом).
+local pendingAnnounce = {}
+
+local function OnBWBar(key, barText, time)
+    if type(key) ~= "number" then return end
+    local dmg = ANNOUNCE[key]
+    if not dmg then return end
+    if not (ns.db and ns.db.features and ns.db.features.dungeonAnnounceOn) then return end
+    local t = tonumber(time) or 0
+    if t <= 0 then return end
+    barText = tostring(barText or key)
+    if pendingAnnounce[barText] then pendingAnnounce[barText]:Cancel(); pendingAnnounce[barText] = nil end
+    if t > ANNOUNCE_LEAD then
+        pendingAnnounce[barText] = C_Timer.NewTimer(t - ANNOUNCE_LEAD, function()
+            pendingAnnounce[barText] = nil
+            ShowAnnounce(dmg, ANNOUNCE_LEAD, barText)
+        end)
+    else
+        ShowAnnounce(dmg, t, barText)
+    end
+end
+
+local function OnBWStop(barText)
+    barText = tostring(barText or "")
+    if pendingAnnounce[barText] then pendingAnnounce[barText]:Cancel(); pendingAnnounce[barText] = nil end
+    if announce._activeText == barText then HideAnnounce() end
+end
+
+local function OnBWStopAll()
+    for k, tmr in pairs(pendingAnnounce) do tmr:Cancel(); pendingAnnounce[k] = nil end
+    HideAnnounce()
+end
+
+-- Подписка на бары BigWigs (единый слушатель, один раз). У BigWigs рассылка:
+-- SendMessage(event, module, key, text, time, …) → callback(event, module, key, text, time, …).
+local announceHooked = false
+local bwAnnounceListener = {}
+local function HookAnnounce()
+    if announceHooked then return end
+    if _G.BigWigsLoader and _G.BigWigsLoader.RegisterMessage then
+        announceHooked = true
+        _G.BigWigsLoader.RegisterMessage(bwAnnounceListener, "BigWigs_StartBar",
+            function(_, _, key, text, time) OnBWBar(key, text, time) end)
+        _G.BigWigsLoader.RegisterMessage(bwAnnounceListener, "BigWigs_StopBar",
+            function(_, _, text) OnBWStop(text) end)
+        _G.BigWigsLoader.RegisterMessage(bwAnnounceListener, "BigWigs_StopBars",
+            function() OnBWStopAll() end)
+    end
+end
+ns.RegisterMessage("RAINON_REAPPLY", HookAnnounce)
+-- Прячем виджет по окончании боя/подземелья (если что-то осталось висеть).
+ns.RegisterEvent("ENCOUNTER_END", OnBWStopAll)
+
+-- Тест формата/позиции без подземелья: /rsannounce (показывает пример на 5 сек).
+ns.Tools.TestDungeonAnnounce = function()
+    ShowAnnounce("Магический", ANNOUNCE_LEAD, "__test__")
+end
+SLASH_RAINONANNOUNCE1 = "/rsannounce"
+SlashCmdList.RAINONANNOUNCE = function() ns.Tools.TestDungeonAnnounce() end
+
+-- Кнопка в тест-панели, в секции «Диагностика» ПОСЛЕ «Трекер звуков». Трекер
+-- регистрируется на PLAYER_ENTERING_WORLD (SoundTracker.lua) — поэтому свою
+-- добавляем следующим кадром (C_Timer.After 0), чтобы встать после него.
+local announceTesterAdded = false
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+    if announceTesterAdded then return end
+    announceTesterAdded = true
+    C_Timer.After(0, function()
+        if ns.Tester and ns.Tester.Add then
+            ns.Tester.Add("Диагностика", "Подземелье: Танк", ns.Tools.TestDungeonAnnounce)
+        end
+    end)
+end)
+
+-- =========================================================================
 -- АРХИВ (2026): «Звук воскрешения союзника» (resCast) убран. В рейде эти события
 -- (UNIT_SPELLCAST_SUCCEEDED по спеллам воскрешения) не ловятся, поэтому фича не
 -- работала. Список спеллов и обработчик — в истории git. Вернёмся к ним позже.
