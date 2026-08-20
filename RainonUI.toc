@@ -13,6 +13,7 @@
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+Libs\LibKeystone\LibKeystone.lua
 Libs\LibEditMode\embed.xml
 
 Core.lua
@@ -38,3 +39,5 @@ Abundance.lua
 SoundTracker.lua
 SoundMute.lua
 MDTTooltip.lua
+TalentReminder.lua
+KeystonePoll.lua

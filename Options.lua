@@ -1796,6 +1796,70 @@ local function CreateOptionsWindow()
             y = y - SELH - 14
         end
 
+        -- === Секция «Напоминание о талантах» (ТЕСТОВЫЙ модуль, только паладин) ===
+        -- Идея из MythicPlusUtility: перед подземельем напоминаем про важные
+        -- полезные таланты. Галка «Напоминание о талантах» + пояснение. Само окно
+        -- (ButtonFrameTemplate) строит TalentReminder.lua; тест — из «Тестера»
+        -- («Подземелья → Напоминание о талантах») или командой /rstalent.
+        Header("Напоминание о талантах", y); y = y - 30
+
+        local tdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        tdesc:SetPoint("TOPLEFT", PAD, y)
+        tdesc:SetPoint("TOPRIGHT", -PAD, y)
+        tdesc:SetJustifyH("LEFT")
+        tdesc:SetText("При входе в подземелье показывает окно с важными талантами " ..
+            C("FFD100", "паладина") .. ", если чего-то не хватает. Открыть вручную — " ..
+            C("FFFF00", "/rstalent") .. ". " .. C("AAAAAA", "Тестовая функция."))
+        y = y - math.ceil(tdesc:GetStringHeight()) - 8
+
+        local talCB = ns.MakeCheckButton(dungeonPanel)
+        talCB:SetSize(26, 26)
+        talCB:SetPoint("TOPLEFT", PAD, y)
+        talCB:SetChecked(ns.db.features.talentReminder and true or false)
+        talCB.Text:SetText("Напоминание о талантах")
+        talCB.Text:SetFontObject("GameFontHighlight")
+        talCB:SetScript("OnClick", function(self)
+            ns.db.features.talentReminder = self:GetChecked() and true or false
+        end)
+        y = y - 34
+
+        -- === Секция «Опрос ключей» (ТЕСТОВЫЙ модуль) ===
+        -- Ключи группы берём через LibKeystone (её тянет BigWigs). По кнопке
+        -- «Опрос» окно рассылает список ключей, у всех с RainonUI оно авто-
+        -- открывается и они голосуют. Галка = участвовать (авто-открытие).
+        -- Само окно (ButtonFrameTemplate) строит KeystonePoll.lua; тест — из
+        -- «Тестера» («Подземелья → Опрос ключей») или командой /rspoll.
+        Header("Опрос ключей", y); y = y - 30
+
+        local kdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        kdesc:SetPoint("TOPLEFT", PAD, y)
+        kdesc:SetPoint("TOPRIGHT", -PAD, y)
+        kdesc:SetJustifyH("LEFT")
+        kdesc:SetText("Собирает ключи группы (нужен " .. C("FFD100", "BigWigs") ..
+            " у игроков) и голосует, какое подземелье бежать. Окно опроса — " ..
+            C("FFFF00", "/rspoll") .. ". " .. C("AAAAAA", "Тестовая функция."))
+        y = y - math.ceil(kdesc:GetStringHeight()) - 8
+
+        local pollCB = ns.MakeCheckButton(dungeonPanel)
+        pollCB:SetSize(26, 26)
+        pollCB:SetPoint("TOPLEFT", PAD, y)
+        pollCB:SetChecked(ns.db.features.keystonePoll and true or false)
+        pollCB.Text:SetText("Участвовать в опросах (авто-открытие)")
+        pollCB.Text:SetFontObject("GameFontHighlight")
+        pollCB:SetScript("OnClick", function(self)
+            ns.db.features.keystonePoll = self:GetChecked() and true or false
+        end)
+        y = y - 34
+
+        local pollBtn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+        pollBtn:SetSize(200, 24)
+        pollBtn:SetPoint("TOPLEFT", PAD, y)
+        pollBtn:SetText("Открыть окно опроса")
+        pollBtn:SetScript("OnClick", function()
+            if ns.KeystonePoll and ns.KeystonePoll.Show then ns.KeystonePoll.Show() end
+        end)
+        y = y - 34
+
         dungeonPanel:SetHeight(-y + 12)
 
         -- Серая «плёнка» ТОЛЬКО на MDT-часть (от галки «ВКЛ модуль» до конца
