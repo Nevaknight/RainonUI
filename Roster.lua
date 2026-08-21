@@ -215,8 +215,8 @@ local function CreateMinimapButton()
         local shift = IsShiftKeyDown and IsShiftKeyDown()
         if button == "RightButton" then
             if shift then
-                -- Shift+ПКМ — заглушка под будущее меню
-                OpenStubMenu(self, "Shift + ПКМ")
+                -- Shift+ПКМ — окно опроса ключей
+                if ns.KeystonePoll and ns.KeystonePoll.Show then ns.KeystonePoll.Show() end
             elseif ns.Knowledge and ns.Knowledge.Toggle then
                 -- ПКМ — окно знаний и зарядов
                 ns.Knowledge:Toggle()
@@ -253,7 +253,7 @@ local function CreateMinimapButton()
         Row("ЛКМ", "меню настроек аддона.")
         Row("ПКМ", "окно знаний и зарядов.")
         Row("Shift + ЛКМ", "тестовое окно.")
-        Row("Shift + ПКМ", "меню (скоро).")
+        Row("Shift + ПКМ", "опрос ключей.")
         Row("Удерживайте ЛКМ", "двигать кнопку.")
         GameTooltip:Show()
     end)

@@ -1988,6 +1988,12 @@ local function OnBWBar(key, barText, time)
     local dmg = ANNOUNCE[key]
     if not dmg then return end
     if not (ns.db and ns.db.features and ns.db.features.dungeonAnnounceOn) then return end
+    -- Роль: по умолчанию анонс только для танка; галка «Другие роли» включает
+    -- показ для хила/дд тоже.
+    if not ns.db.features.dungeonAnnounceOtherRoles then
+        local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned("player")
+        if role ~= "TANK" then return end
+    end
     local t = tonumber(time) or 0
     if t <= 0 then return end
     barText = tostring(barText or key)

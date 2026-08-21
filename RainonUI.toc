@@ -41,3 +41,4 @@ SoundMute.lua
 MDTTooltip.lua
 TalentReminder.lua
 KeystonePoll.lua
+KeyReroll.lua

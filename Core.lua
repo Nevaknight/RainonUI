@@ -44,7 +44,7 @@ ns.defaults = {
         invispotion = true, engcloak = true,
         -- Профессии
         prof_phial = true, prof_essence = true,
-        professions_enabled = true, -- мастер-выключатель всего по профессиям
+        professions_enabled = false, -- мастер-выключатель всего по профессиям (по умолч. ВЫКЛ)
         phialQuality = 241312,      -- itemID выбранного флакона (для клика по иконке)
         shatterEssence = 236952,    -- itemID частицы для раскалывания
         -- Валюта
@@ -96,6 +96,7 @@ ns.defaults = {
         -- «Подземелья»: анонс типа урона танку по таймерам BigWigs.
         -- Виджет (иконка танка | тип урона | цифры) появляется за 5 сек до удара.
         dungeonAnnounceOn      = true,  -- показывать виджет-анонс (галка «ВКЛ анонс»)
+        dungeonAnnounceOtherRoles = false, -- анонс и для хила/дд (выкл = только танк)
         dungeonAnnounceSoundOn = true,  -- играть звук на анонсе (галка «Звук анонса»)
         dungeonAnnounceSound   = nil,   -- ИМЯ звука LSM (nil → «RainonUI: Босс (Alice)»)
         -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
@@ -109,7 +110,10 @@ ns.defaults = {
         talentReminder = false,
         -- «Подземелья»: опрос ключей группы (ТЕСТОВЫЙ модуль). Вкл — окно опроса
         -- авто-открывается, когда кто-то в группе запускает «Опрос». По умолч. ВЫКЛ.
-        keystonePoll = false,
+        keystonePoll = true,
+        -- «Подземелья»: напоминание «сменить ключ?» + окно реролла (ТЕСТОВЫЙ).
+        -- По умолчанию ВЫКЛ. Голоса реролла — в rerollMarks (создаётся лениво).
+        keyReroll = false,
     },
     -- Настройки окна знаний/зарядов
     knowledge = {

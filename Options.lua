@@ -1746,6 +1746,18 @@ local function CreateOptionsWindow()
         annCB:SetScript("OnClick", function(self)
             ns.db.features.dungeonAnnounceOn = self:GetChecked() and true or false
         end)
+
+        -- Галка «Другие роли» справа от «ВКЛ анонс»: вкл — анонс работает и для
+        -- хила/дд; выкл — только для танка (по умолчанию ВЫКЛ).
+        local rolesCB = ns.MakeCheckButton(dungeonPanel)
+        rolesCB:SetSize(26, 26)
+        rolesCB:SetPoint("TOPLEFT", PAD + 150, y)
+        rolesCB:SetChecked(ns.db.features.dungeonAnnounceOtherRoles and true or false)
+        rolesCB.Text:SetText("Другие роли")
+        rolesCB.Text:SetFontObject("GameFontHighlight")
+        rolesCB:SetScript("OnClick", function(self)
+            ns.db.features.dungeonAnnounceOtherRoles = self:GetChecked() and true or false
+        end)
         y = y - 34
 
         -- Строчка «Звук анонса»: галка слева + селектор в колонке справа (высота
@@ -1857,6 +1869,41 @@ local function CreateOptionsWindow()
         pollBtn:SetText("Открыть окно опроса")
         pollBtn:SetScript("OnClick", function()
             if ns.KeystonePoll and ns.KeystonePoll.Show then ns.KeystonePoll.Show() end
+        end)
+        y = y - 34
+
+        -- === Секция «Напоминание: Сменить ключ?» (ТЕСТОВЫЙ модуль) ===
+        -- Экранный текст после ключа: «Сменить ключ» (пройден в тайм и свой ключ
+        -- ≤ пройденного) и «Этот ключ не нужен группе!» (по голосованию реролла).
+        -- Окно «Нужно/Не нужно» — отдельное (KeyReroll.lua). Двигается в EditMode.
+        Header("Напоминание: Сменить ключ?", y); y = y - 30
+
+        local rrdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rrdesc:SetPoint("TOPLEFT", PAD, y)
+        rrdesc:SetPoint("TOPRIGHT", -PAD, y)
+        rrdesc:SetJustifyH("LEFT")
+        rrdesc:SetText("После ключа подскажет сменить его (пройден в тайм и ключ не вырос) " ..
+            "и что подземелье не нужно группе. Окно голосования — " .. C("FFFF00", "/rsreroll") ..
+            ". Текст двигается в режиме редактирования. " .. C("AAAAAA", "Тестовая функция."))
+        y = y - math.ceil(rrdesc:GetStringHeight()) - 8
+
+        local rrCB = ns.MakeCheckButton(dungeonPanel)
+        rrCB:SetSize(26, 26)
+        rrCB:SetPoint("TOPLEFT", PAD, y)
+        rrCB:SetChecked(ns.db.features.keyReroll and true or false)
+        rrCB.Text:SetText("Напоминание о смене ключа")
+        rrCB.Text:SetFontObject("GameFontHighlight")
+        rrCB:SetScript("OnClick", function(self)
+            ns.db.features.keyReroll = self:GetChecked() and true or false
+        end)
+        y = y - 34
+
+        local rrBtn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+        rrBtn:SetSize(220, 24)
+        rrBtn:SetPoint("TOPLEFT", PAD, y)
+        rrBtn:SetText("Окно: Нужно / Не нужно")
+        rrBtn:SetScript("OnClick", function()
+            if ns.KeyReroll and ns.KeyReroll.ShowWindow then ns.KeyReroll.ShowWindow() end
         end)
         y = y - 34
 
