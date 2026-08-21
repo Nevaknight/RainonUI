@@ -36,10 +36,10 @@ local PALADIN_TALENTS = {
 -- иконка способности. Позже вынесем в DATA-таблицу по подземельям.
 local COUNTERS = {
     [1022] = { -- Blessing of Protection
-        { npc = 269811, name = "Kula the Butcher", g = "13, 20, 27",
+        { npc = 269811, dungeon = 1762, name = "Kula the Butcher", g = "13, 20, 27",
           spell = 266231, icon = 132215, ability = "Увечащий топор",
           note = "Снимаем с союзника" },
-        { npc = 135167, name = "Royal Berserker", g = "22, 24, 25, 26, 30",
+        { npc = 135167, dungeon = 1762, name = "Royal Berserker", g = "22, 24, 25, 26, 30",
           icon = 132215, ability = "Кровожадный топор",
           note = "Снимаем с себя и сразу скидываем БоП" },
     },
@@ -54,6 +54,32 @@ local function SpellName(id)
         if info and info.name then return info.name end
     end
     return "spell:" .. tostring(id)
+end
+
+-- Локализованное имя НПЦ по npcID (из клиента игры). Строим unit-ссылку с
+-- фиктивным GUID и читаем тултип — имя приходит на языке клиента. Кэшируем.
+-- Фолбэк — англ. имя из MDT (передаём), если API недоступен.
+local npcNameCache = {}
+local function NpcName(id, fallback)
+    if npcNameCache[id] then return npcNameCache[id] end
+    local nm
+    pcall(function()
+        if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+            local data = C_TooltipInfo.GetHyperlink(("unit:Creature-0-0-0-0-%d-0000000000"):format(id))
+            if data and data.lines and data.lines[1] then nm = data.lines[1].leftText end
+        end
+    end)
+    if not nm or nm == "" then nm = fallback or ("НПЦ " .. tostring(id)) end
+    npcNameCache[id] = nm
+    return nm
+end
+
+local function DungeonTex(mapID)
+    if mapID and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        local _, _, _, tex = C_ChallengeMode.GetMapUIInfo(mapID)
+        if tex then return tex end
+    end
+    return 525134
 end
 
 -- Знает ли игрок этот талант/спелл. IsPlayerSpell учитывает таланты.
@@ -311,11 +337,13 @@ TR.Refresh = Refresh
 -- Строка = 3D-модель моба (SetCreature, как MDT) | способность | что делать.
 -- -------------------------------------------------------------------------
 local cwin, crows = nil, {}
-local C_ROW_H, C_MODEL, C_PAD, C_TITLE, C_BOT = 66, 54, 12, 26, 12
+local curCounters   -- текущий список (для агрегации по НПЦ в большом окне)
+local C_ROW_H, C_MODEL, C_PAD, C_TITLE, C_BOT = 76, 60, 12, 26, 12
 
 function TR.ShowCounters(talentID)
     local data = COUNTERS[talentID]
     if not data then return end
+    curCounters = data
 
     if not cwin then
         cwin = CreateFrame("Frame", "RainonUITalentCounters", UIParent, "ButtonFrameTemplate")
@@ -370,12 +398,18 @@ function TR.ShowCounters(talentID)
                 GameTooltip:Show()
             end)
             r.model:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            r.ability = r:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-            r.ability:SetPoint("TOPLEFT", r.model, "TOPRIGHT", 12, -8)
+            -- Три строки: имя НПЦ | иконка+способность | текст.
+            r.npcName = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            r.npcName:SetPoint("TOPLEFT", r.model, "TOPRIGHT", 12, -8)
+            r.npcName:SetPoint("RIGHT", r, "RIGHT", -8, 0)
+            r.npcName:SetJustifyH("LEFT")
+            r.ability = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            r.ability:SetPoint("TOPLEFT", r.npcName, "BOTTOMLEFT", 0, -5)
+            r.ability:SetPoint("RIGHT", r, "RIGHT", -8, 0)
             r.ability:SetJustifyH("LEFT")
-            r.note = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            r.note:SetPoint("TOPLEFT", r.ability, "BOTTOMLEFT", 0, -6)
-            r.note:SetPoint("RIGHT", r, "RIGHT", -10, 0)
+            r.note = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            r.note:SetPoint("TOPLEFT", r.ability, "BOTTOMLEFT", 0, -5)
+            r.note:SetPoint("RIGHT", r, "RIGHT", -8, 0)
             r.note:SetJustifyH("LEFT"); r.note:SetWordWrap(true)
             crows[i] = r
         end
@@ -389,7 +423,9 @@ function TR.ShowCounters(talentID)
             r.model:SetCamDistanceScale(1.4)
             r.model:SetPortraitZoom(0.35)
         end)
-        r.ability:SetText(ns.C("FFD100", e.ability))
+        r.npcName:SetText(NpcName(e.npc, e.name))
+        local ic = e.icon and ("|T" .. e.icon .. ":16:16:0:0:64:64:5:59:5:59|t ") or ""
+        r.ability:SetText(ic .. ns.C("71D5FF", e.ability))
         r.note:SetText(e.note)
         r:Show()
         y = y - C_ROW_H
@@ -403,11 +439,18 @@ end
 -- талантах», но выше — крупная модель. Заголовок = имя НПЦ, ниже «G …»,
 -- потом способность (игровой тултип) и текст.
 -- -------------------------------------------------------------------------
-local nwin
-local N_W, N_H, N_TITLE, N_BOT = 340, 470, 26, 12
+local nwin, nabs = nil, {}
+local N_W, N_TITLE, N_BOT, N_MODEL, N_AB = 340, 26, 12, 260, 52
 
 function TR.ShowNpc(e)
     if not e then return end
+    -- собрать ВСЕ способности этого НПЦ из текущего списка (может быть несколько)
+    local list = {}
+    if curCounters then
+        for _, x in ipairs(curCounters) do if x.npc == e.npc then list[#list + 1] = x end end
+    end
+    if #list == 0 then list = { e } end
+
     if not nwin then
         nwin = CreateFrame("Frame", "RainonUITalentNpc", UIParent, "ButtonFrameTemplate")
         nwin:SetFrameStrata("FULLSCREEN_DIALOG"); nwin:SetToplevel(true)
@@ -415,59 +458,31 @@ function TR.ShowNpc(e)
         nwin:SetScript("OnDragStart", nwin.StartMoving)
         nwin:SetScript("OnDragStop", nwin.StopMovingOrSizing)
         table.insert(UISpecialFrames, "RainonUITalentNpc")
-        nwin:SetSize(N_W, N_H)
-        nwin:SetPoint("CENTER", 0, 0)
-
-        local host = nwin.Inset or nwin
+        nwin.host = nwin.Inset or nwin
         -- строка «G …» под заголовком (на фоне рамки)
         nwin.GLine = nwin:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         nwin.GLine:SetPoint("TOP", nwin, "TOP", 0, -(N_TITLE + 2))
         nwin.GLine:SetJustifyH("CENTER")
-        if nwin.Inset then
-            nwin.Inset:ClearAllPoints()
-            nwin.Inset:SetPoint("TOPLEFT", nwin, "TOPLEFT", 4, -(N_TITLE + 22))
-            nwin.Inset:SetPoint("BOTTOMRIGHT", nwin, "BOTTOMRIGHT", -6, N_BOT)
-        end
         -- крупная модель сверху инсета
-        nwin.model = CreateFrame("PlayerModel", nil, host)
-        nwin.model:SetPoint("TOPLEFT", host, "TOPLEFT", 10, -10)
-        nwin.model:SetPoint("TOPRIGHT", host, "TOPRIGHT", -10, -10)
-        nwin.model:SetHeight(300)
-        -- способность (иконка + название) c игровым тултипом по наведению
-        nwin.abBtn = CreateFrame("Button", nil, host)
-        nwin.abBtn:SetPoint("TOPLEFT", nwin.model, "BOTTOMLEFT", 0, -10)
-        nwin.abBtn:SetPoint("RIGHT", host, "RIGHT", -10, 0)
-        nwin.abBtn:SetHeight(22)
-        nwin.abText = nwin.abBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        nwin.abText:SetPoint("LEFT", 0, 0); nwin.abText:SetJustifyH("LEFT")
-        nwin.abBtn:SetScript("OnEnter", function(self)
-            local sp = self._spell
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if sp then local ok = pcall(function() GameTooltip:SetSpellByID(sp) end)
-                if not ok then GameTooltip:SetText(self._name or "") end
-            else GameTooltip:SetText(self._name or "") end
-            GameTooltip:Show()
-        end)
-        nwin.abBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        -- текст-инструкция
-        nwin.note = host:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        nwin.note:SetPoint("TOPLEFT", nwin.abBtn, "BOTTOMLEFT", 0, -8)
-        nwin.note:SetPoint("RIGHT", host, "RIGHT", -10, 0)
-        nwin.note:SetJustifyH("LEFT"); nwin.note:SetWordWrap(true)
+        nwin.model = CreateFrame("PlayerModel", nil, nwin.host)
+        nwin.model:SetPoint("TOPLEFT", nwin.host, "TOPLEFT", 10, -10)
+        nwin.model:SetPoint("TOPRIGHT", nwin.host, "TOPRIGHT", -10, -10)
+        nwin.model:SetHeight(N_MODEL)
     end
+    local host = nwin.host
 
-    -- заголовок = имя НПЦ
-    local title = e.name or ("НПЦ " .. tostring(e.npc))
+    -- заголовок = имя НПЦ (локализованное из клиента)
+    local title = NpcName(e.npc, e.name)
     if nwin.SetTitle then pcall(nwin.SetTitle, nwin, title) end
     local titleFS = (nwin.TitleContainer and nwin.TitleContainer.TitleText) or nwin.TitleText
     if titleFS then
         titleFS:SetText(title)
         titleFS:ClearAllPoints(); titleFS:SetPoint("TOP", nwin, "TOP", 0, -6); titleFS:SetJustifyH("CENTER")
     end
-    -- портрет рамки = иконка способности
+    -- портрет рамки = иконка ПОДЗЕМЕЛЬЯ (способностей может быть несколько)
     pcall(function()
         local p = nwin.PortraitContainer and nwin.PortraitContainer.portrait or nwin.portrait
-        if p and e.icon then p:SetTexture(e.icon); p:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+        if p then p:SetTexture(DungeonTex(e.dungeon)); p:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
     end)
 
     nwin.GLine:SetText(ns.C("FFD100", "G ") .. (e.g or "?"))
@@ -476,12 +491,53 @@ function TR.ShowNpc(e)
         nwin.model:SetCamDistanceScale(1.0)
         nwin.model:SetPortraitZoom(0)
     end)
-    local ic = e.icon and ("|T" .. e.icon .. ":18:18:0:0:64:64:5:59:5:59|t ") or ""
-    nwin.abText:SetText(ic .. ns.C("71D5FF", e.ability or ""))
-    nwin.abBtn._spell = e.spell
-    nwin.abBtn._name = e.ability
-    nwin.note:SetText(e.note or "")
 
+    -- список способностей под моделью (иконка+способность c игровым тултипом + текст)
+    for _, ab in ipairs(nabs) do ab.frame:Hide() end
+    local ay = -10
+    for i, x in ipairs(list) do
+        local ab = nabs[i]
+        if not ab then
+            ab = {}
+            ab.frame = CreateFrame("Button", nil, host)
+            ab.frame:SetHeight(N_AB)
+            ab.text = ab.frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            ab.text:SetPoint("TOPLEFT", 0, 0); ab.text:SetJustifyH("LEFT")
+            ab.note = ab.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            ab.note:SetPoint("TOPLEFT", ab.text, "BOTTOMLEFT", 0, -5)
+            ab.note:SetPoint("RIGHT", ab.frame, "RIGHT", 0, 0)
+            ab.note:SetJustifyH("LEFT"); ab.note:SetWordWrap(true)
+            ab.frame:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if ab._spell then
+                    local ok = pcall(function() GameTooltip:SetSpellByID(ab._spell) end)
+                    if not ok then GameTooltip:SetText(ab._name or "") end
+                else GameTooltip:SetText(ab._name or "") end
+                GameTooltip:Show()
+            end)
+            ab.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            nabs[i] = ab
+        end
+        ab.frame:ClearAllPoints()
+        ab.frame:SetPoint("TOPLEFT", nwin.model, "BOTTOMLEFT", 0, ay)
+        ab.frame:SetPoint("RIGHT", host, "RIGHT", -10, 0)
+        local ic = x.icon and ("|T" .. x.icon .. ":18:18:0:0:64:64:5:59:5:59|t ") or ""
+        ab.text:SetText(ic .. ns.C("71D5FF", x.ability or ""))
+        ab.note:SetText(x.note or "")
+        ab._spell = x.spell; ab._name = x.ability
+        ab.frame:Show()
+        ay = ay - N_AB
+    end
+
+    -- размер окна + инсет под контент
+    local h = (N_TITLE + 22) + (10 + N_MODEL + #list * N_AB + 10) + N_BOT
+    nwin:SetSize(N_W, h)
+    nwin:ClearAllPoints(); nwin:SetPoint("CENTER")
+    if nwin.Inset then
+        nwin.Inset:ClearAllPoints()
+        nwin.Inset:SetPoint("TOPLEFT", nwin, "TOPLEFT", 4, -(N_TITLE + 22))
+        nwin.Inset:SetPoint("BOTTOMRIGHT", nwin, "BOTTOMRIGHT", -6, N_BOT)
+    end
     nwin:Show(); nwin:Raise()
 end
 
