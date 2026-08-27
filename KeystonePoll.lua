@@ -112,6 +112,32 @@ local function VotersFor(mapID)
     return yes, no
 end
 
+-- Имена всех в группе (включая себя) — чтобы понять, кого ждём.
+local function GroupNames()
+    local out = {}
+    if ns.IterateGroup then
+        for unit in ns.IterateGroup() do
+            local n = UnitName(unit)
+            if n then out[n] = true end
+        end
+    end
+    out[MY_NAME] = true
+    return out
+end
+
+-- Кто ещё НЕ проголосовал по этому ключу (ни «за», ни «против») — «Думают».
+local function Thinking(mapID)
+    local out = {}
+    for name in pairs(GroupNames()) do
+        local v = votes[name]
+        if not (IsYes(v, mapID) or IsNo(v, mapID)) then
+            out[#out + 1] = ClassColorName(name)
+        end
+    end
+    table.sort(out)
+    return out
+end
+
 -- (Де)сериализация моего голоса: "*;map:y,map:n" (звёздочка = «Пофиг»).
 local function Serialize(v)
     local parts = {}
@@ -181,18 +207,20 @@ local function MakeRow(host, i)
     r.countHover = CreateFrame("Frame", nil, r)
     r.countHover:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
     r.countHover:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
-    r.countHover:SetWidth(56)
+    r.countHover:SetWidth(76)
     r.countHover:EnableMouse(true)
     r.countHover:SetScript("OnEnter", function(self)
         if not r.mapID then return end
         local yes, no = VotersFor(r.mapID)
+        local think = Thinking(r.mapID)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine((select(1, DungeonName(r.mapID))))
-        if #yes == 0 and #no == 0 then
+        if #yes == 0 and #no == 0 and #think == 0 then
             GameTooltip:AddLine("Никто не голосовал", 0.7, 0.7, 0.7)
         else
             if #yes > 0 then GameTooltip:AddLine("За: " .. table.concat(yes, ", "), 0.2, 1, 0.2, true) end
             if #no > 0 then GameTooltip:AddLine("Против: " .. table.concat(no, ", "), 1, 0.3, 0.3, true) end
+            if #think > 0 then GameTooltip:AddLine("Думают: " .. table.concat(think, ", "), 0.7, 0.7, 0.7, true) end
         end
         GameTooltip:Show()
     end)
@@ -320,13 +348,12 @@ function Rebuild()
             r.icon:SetTexture(tex)
             r.mapID = c.mapID
             r.label:SetText(name .. "  " .. ns.C("FFD100", "+" .. c.level))
-            -- Итог = «за» минус «против». Отрицательный — красным (с минусом),
-            -- положительный — зелёным, ноль — серым.
-            local net = CountYes(c.mapID) - CountNo(c.mapID)
-            r.count:SetText(tostring(net))
-            if net < 0 then r.count:SetTextColor(1, 0.25, 0.25)
-            elseif net > 0 then r.count:SetTextColor(0.2, 1, 0.2)
-            else r.count:SetTextColor(0.8, 0.8, 0.8) end
+            -- Показываем ВСЕ голоса раздельно: слева «за» (зелёным), справа
+            -- «против» (красным), между — минималистичный разделитель-палочка.
+            -- (Раньше был нетто «за−против» — голоса перебивали друг друга.)
+            local yes, no = CountYes(c.mapID), CountNo(c.mapID)
+            r.count:SetText(ns.C("40D040", tostring(yes)) .. "  " ..
+                ns.C("808080", "||") .. "  " .. ns.C("FF5555", tostring(no)))
             if IsNo(mine, c.mapID) then
                 r.mark:SetAtlas("common-icon-redx"); r.mark:Show()
             elseif IsYes(mine, c.mapID) then

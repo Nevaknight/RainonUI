@@ -100,7 +100,6 @@ ns.defaults = {
         dungeonAnnounceSound   = nil,   -- ИМЯ звука LSM (nil → «RainonUI: Босс (Alice)»)
         -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
         craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
-        groupSearchButton = false, -- ALT+ЛКМ по кнопке миникарты → Поиск группы + текст «Abu»
         -- Режим «крестики скрытия»: на скрываемых элементах UI показываются
         -- крестики; клик по крестику включает галку скрытия и прячет элемент.
         hideSetupMode = false,

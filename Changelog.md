@@ -1,9 +1,9 @@
 # RainonUI — Changelog
 
-## 1.5.1
+## 1.5.2
 
-* **Treatise glow now clears the moment you use it.** The glow on an unused profession treatise disappears right after you use it — no more waiting for a relog.
-* **Weekly profession task updates the table instantly.** Turning in your weekly knowledge quest now refreshes the knowledge window right away, instead of sometimes needing a relog.
-* **More accurate alchemy charge timer.** The time until your next alchemy charge is now read directly from your profession talent, so the estimate matches your actual specialization.
-* **Our sounds now work with your other addons.** RainonUI voice lines are shared with BigWigs, NorthernSky and any addon that reads the common sound library.
-* **RainonUI sounds in the standard Cooldown Manager.** A "RainonUI" entry is added to the Cooldown Manager's ability-alert sound picker, so you can choose our sounds for cooldown alerts — the game's built-in sounds keep working exactly as before.
+* **Knowledge window: professions now sorted alphabetically.** Each character's profession icons line up A→Z instead of following the character's slot order.
+* **Keystone Poll shows every vote.** The count is now split into "for" (left) and "against" (right) with a slim divider, so votes no longer cancel each other out. Hovering the number also lists who hasn't voted yet.
+* **Keystone reroll ("Needed / Not needed") upgrades.** Added a "Poll" button to open the window for your whole group; hover a Needed / Not-needed button to see who voted and who is still deciding; and the end-of-run "you can change your key" reminder is now detected far more reliably.
+* **Minimap button shortcuts reorganized.** Shift + Left click = keystone poll, Shift + Right click = keystone reroll, Alt + Left click = test panel.
+* Removed a group-search shortcut that no longer works with the current Group Finder.

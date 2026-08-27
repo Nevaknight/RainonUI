@@ -193,6 +193,12 @@ function Roster.GetAll()
     if not ns.db or not ns.db.roster then return list end
     for guid, e in pairs(ns.db.roster) do
         e.guid = guid
+        -- Профессии показываем по алфавиту (Алхимия, Наложение чар, …), а не в
+        -- порядке слотов персонажа. Сорт по локализованному имени (кириллица в
+        -- UTF-8 идёт по алфавиту), стабильно для колонок Проф.1/Проф.2.
+        if type(e.profs) == "table" then
+            table.sort(e.profs, function(x, y) return (x.name or "") < (y.name or "") end)
+        end
         list[#list + 1] = e
     end
     table.sort(list, function(a, b)
@@ -235,36 +241,6 @@ local function UpdatePosition()
         r * math.cos(angle), r * math.sin(angle))
 end
 
--- ALT+ЛКМ по кнопке миникарты: открыть Поиск группы (Premade Groups) и вписать
--- «Abu» в строку поиска. МИНИМАЛЬНЫЙ ТЭЙНТ: сам поиск НЕ запускаем (игрок жмёт
--- Enter) — так не тэйнтим защищённый путь заявок. Только вне боя (окно защищённое).
-local function OpenGroupSearch()
-    if InCombatLockdown() then
-        if ns.Print then ns.Print("Поиск группы — только вне боя.") end
-        return
-    end
-    if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_GroupFinder") end
-    pcall(function()
-        if PVEFrame_ShowFrame then
-            PVEFrame_ShowFrame("GroupFinderFrame", _G.LFGListPVEStub)   -- → «Группы игроков»
-        elseif PVEFrame and not PVEFrame:IsShown() and ShowUIPanel then
-            ShowUIPanel(PVEFrame)
-        end
-    end)
-    -- на след. кадре (фреймы успели создаться) — вписываем текст и ставим фокус.
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0, function()
-            pcall(function()
-                local sp = LFGListFrame and LFGListFrame.SearchPanel
-                if sp and sp.SearchBox then
-                    sp.SearchBox:SetText("Abu")
-                    sp.SearchBox:SetFocus()
-                end
-            end)
-        end)
-    end
-end
-
 local function CreateMinimapButton()
     if minimapButton then return minimapButton end
     if not Minimap then return nil end
@@ -292,19 +268,19 @@ local function CreateMinimapButton()
         local shift = IsShiftKeyDown and IsShiftKeyDown()
         if button == "RightButton" then
             if shift then
-                -- Shift+ПКМ — окно опроса ключей
-                if ns.KeystonePoll and ns.KeystonePoll.Show then ns.KeystonePoll.Show() end
+                -- Shift+ПКМ — реролл ключей «Нужно / Не нужно» (дневное сохранение)
+                if ns.KeyReroll and ns.KeyReroll.ToggleWindow then ns.KeyReroll.ToggleWindow() end
             elseif ns.Knowledge and ns.Knowledge.Toggle then
                 -- ПКМ — окно знаний и зарядов
                 ns.Knowledge:Toggle()
             end
         else
             if IsAltKeyDown and IsAltKeyDown() then
-                -- Alt+ЛКМ — Поиск группы (Premade Groups) + текст «Abu» (галка «Вкл кнопку поиска»)
-                if ns.db.features and ns.db.features.groupSearchButton then OpenGroupSearch() end
-            elseif shift then
-                -- Shift+ЛКМ — тестовое окно (панель тестов /rstest)
+                -- Alt+ЛКМ — тестовое окно (панель тестов /rstest)
                 if ns.Tester and ns.Tester.Toggle then ns.Tester.Toggle() end
+            elseif shift then
+                -- Shift+ЛКМ — окно опроса ключей
+                if ns.KeystonePoll and ns.KeystonePoll.Show then ns.KeystonePoll.Show() end
             elseif SlashCmdList and SlashCmdList.RAINONUI then
                 -- ЛКМ — главное меню настроек аддона (/rs)
                 SlashCmdList.RAINONUI("")
@@ -332,11 +308,9 @@ local function CreateMinimapButton()
         end
         Row("ЛКМ", "меню настроек аддона.")
         Row("ПКМ", "окно знаний и зарядов.")
-        Row("Shift + ЛКМ", "тестовое окно.")
-        Row("Shift + ПКМ", "опрос ключей.")
-        if ns.db and ns.db.features and ns.db.features.groupSearchButton then
-            Row("Alt + ЛКМ", "поиск группы (Abu).")
-        end
+        Row("Shift + ЛКМ", "опрос ключей.")
+        Row("Shift + ПКМ", "реролл ключей «Нужно / Не нужно».")
+        Row("Alt + ЛКМ", "тестовое окно.")
         Row("Удерживайте ЛКМ", "двигать кнопку.")
         GameTooltip:Show()
     end)

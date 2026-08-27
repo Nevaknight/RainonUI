@@ -1334,12 +1334,6 @@ local function CreateOptionsWindow()
             function(v) ns.db.features.abundanceSound = v; ns.db.features.abundanceSoundOn = true end,
             function() if ns.Tools and ns.Tools.PlaySoundByName then ns.Tools.PlaySoundByName(AbundanceSoundName()) end end)
 
-        -- Кнопка поиска группы: ALT+ЛКМ по кнопке миникарты → Premade Groups + «Abu».
-        MakeCheck("groupSearchButton", "Вкл кнопку поиска",
-            "ALT+ЛКМ по кнопке миникарты RainonUI открывает Поиск группы (Группы игроков) " ..
-            "и вписывает «Abu» в строку поиска — останется нажать Enter. Работает вне боя.")
-        y = y - 32
-
         featuresPanel:SetHeight(-y + 12)
     end
 

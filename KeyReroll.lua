@@ -63,6 +63,68 @@ local function NotNeeded(mapID)
     return need == 0 and skip >= 1
 end
 
+-- Имя игрока в цвете класса (перебор группы).
+local function ClassColorName(name)
+    local cf
+    if name == MY_NAME then
+        cf = select(2, UnitClass("player"))
+    elseif ns.IterateGroup then
+        for unit in ns.IterateGroup() do
+            if UnitName(unit) == name then cf = select(2, UnitClass(unit)); break end
+        end
+    end
+    local c = cf and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
+    if c then return "|c" .. c.colorStr .. name .. "|r" end
+    return name
+end
+
+-- Имена всех в группе (включая себя).
+local function GroupNames()
+    local out = {}
+    if ns.IterateGroup then
+        for unit in ns.IterateGroup() do
+            local n = UnitName(unit)
+            if n then out[n] = true end
+        end
+    end
+    out[MY_NAME] = true
+    return out
+end
+
+local function StoreFor(name)
+    return (name == MY_NAME) and MyStore() or peers[name]
+end
+
+-- Списки проголосовавших по подземелью: «нужно» / «не нужно» (в цвете класса).
+local function VotersReroll(mapID)
+    local need, skip = {}, {}
+    local function acc(name)
+        local s = StoreFor(name)
+        if not s or s.day ~= DayId() then return end
+        local m = s.marks[mapID]
+        if m == "need" then need[#need + 1] = ClassColorName(name)
+        elseif m == "skip" then skip[#skip + 1] = ClassColorName(name) end
+    end
+    local seen = {}
+    acc(MY_NAME); seen[MY_NAME] = true
+    for name in pairs(peers) do if not seen[name] then acc(name); seen[name] = true end end
+    table.sort(need); table.sort(skip)
+    return need, skip
+end
+
+-- Кто ещё не отметил это подземелье (ни «нужно», ни «не нужно») — «Думают».
+local function ThinkingReroll(mapID)
+    local out = {}
+    for name in pairs(GroupNames()) do
+        local s = StoreFor(name)
+        if not (s and s.day == DayId() and s.marks[mapID] ~= nil) then
+            out[#out + 1] = ClassColorName(name)
+        end
+    end
+    table.sort(out)
+    return out
+end
+
 -- -------------------------------------------------------------------------
 -- Обмен (наш канал)
 -- -------------------------------------------------------------------------
@@ -170,6 +232,33 @@ end
 -- Логика после завершения ключа
 -- -------------------------------------------------------------------------
 local completion
+
+-- Новый ключ прилетает не сразу после `CHALLENGE_MODE_COMPLETED` (API пустой,
+-- предмет появляется чуть позже). Раньше был один таймер 1.5с — он часто не
+-- успевал, и окно «Смени ключ» не показывалось. Ловим момент получения ключа
+-- ТАК ЖЕ, как это делают BigWigs/LibKeystone: слушаем `ITEM_CHANGED`/`ITEM_PUSH`
+-- (обмен ключа у НПЦ / выпадение из сундука) + держим несколько ретраев по
+-- таймеру. Как только ключ прочитался — перепроверяем и снимаем слежку.
+local keyWatch = CreateFrame("Frame")
+local function WatchKey(on)
+    if on then
+        keyWatch:RegisterEvent("ITEM_CHANGED")
+        keyWatch:RegisterEvent("ITEM_PUSH")
+        keyWatch:RegisterEvent("PLAYER_LEAVING_WORLD")
+    else
+        keyWatch:UnregisterAllEvents()
+    end
+end
+KR.WatchKey = WatchKey
+keyWatch:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LEAVING_WORLD" then WatchKey(false); return end
+    C_Timer.After(1, function() KR.CheckAfterRun() end)  -- дать API обновиться
+end)
+
+local function ScheduleKeyCheck()
+    for _, d in ipairs({ 1.5, 3, 5, 8 }) do C_Timer.After(d, KR.CheckAfterRun) end
+end
+
 ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
     if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
     local level, onTime
@@ -178,8 +267,8 @@ ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
         level, onTime = lvl, ot
     end)
     completion = { level = level, onTime = onTime }
-    -- ключ в сумках обновляется чуть позже
-    C_Timer.After(1.5, KR.CheckAfterRun)
+    WatchKey(true)       -- слушаем получение нового ключа (как BigWigs/LibKeystone)
+    ScheduleKeyCheck()   -- + ретраи по таймеру
 end)
 
 -- Скан сумок на эпохальный ключ (как в BigWigs): C_Container + IsItemKeystoneByID,
@@ -222,7 +311,10 @@ KR.ReadOwnedKeystone = ReadOwnedKeystone
 function KR.CheckAfterRun()
     if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
     local lvl, map = ReadOwnedKeystone()
-    if type(lvl) ~= "number" or type(map) ~= "number" or lvl <= 0 or map <= 0 then return end
+    if type(lvl) ~= "number" or type(map) ~= "number" or lvl <= 0 or map <= 0 then
+        return  -- ключ ещё не прочитался → ждём следующий ITEM_*-триггер / ретрай
+    end
+    WatchKey(false)  -- ключ есть — решение принимаем сейчас, слежку снимаем
 
     -- Условие 1: пройдено В ТАЙМ и свой ключ в сумках ≤ уровня пройденного.
     if not (completion and completion.onTime) then return end
@@ -243,7 +335,7 @@ end
 -- Окно «Нужно / Не нужно»
 -- -------------------------------------------------------------------------
 local WIN_W, PAD, ROW_H, ICON = 440, 14, 32, 24
-local TITLEBAR, BOTTOM_PAD, HINT_H, INSET_TOPPAD = 24, 12, 28, 8
+local TITLEBAR, BOTTOM_PAD, HINT_H, INSET_TOPPAD = 24, 40, 28, 8
 local win, wrows
 
 local function SetMark(mapID, kind)
@@ -253,6 +345,26 @@ local function SetMark(mapID, kind)
     KR.RebuildWindow()
 end
 KR.SetMark = SetMark
+
+-- Подсказка «кто голосовал» при наведении на кнопку «Нужно»/«Не нужно» (по
+-- аналогии с окном «Опрос ключей»): показываем проголосовавших + кого ждём.
+local function ShowVotersTip(anchor, mapID, which)
+    local need, skip = VotersReroll(mapID)
+    local think = ThinkingReroll(mapID)
+    GameTooltip:SetOwner(anchor, "ANCHOR_RIGHT")
+    GameTooltip:AddLine((DungeonInfo(mapID)))
+    if which == "need" then
+        GameTooltip:AddLine("Нужно: " .. (#need > 0 and table.concat(need, ", ") or "—"),
+            0.25, 0.85, 0.25, true)
+    else
+        GameTooltip:AddLine("Не нужно: " .. (#skip > 0 and table.concat(skip, ", ") or "—"),
+            1, 0.33, 0.33, true)
+    end
+    if #think > 0 then
+        GameTooltip:AddLine("Думают: " .. table.concat(think, ", "), 0.7, 0.7, 0.7, true)
+    end
+    GameTooltip:Show()
+end
 
 local function BuildWindow()
     if win then return win end
@@ -322,13 +434,25 @@ local function BuildWindow()
         r.no = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
         r.no:SetSize(84, 22); r.no:SetPoint("RIGHT", 0, 0); r.no:SetText("Не нужно")
         r.no:SetScript("OnClick", function() SetMark(mapID, "skip") end)
+        r.no:HookScript("OnEnter", function(self) ShowVotersTip(self, mapID, "skip") end)
+        r.no:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
         r.yes = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
         r.yes:SetSize(72, 22); r.yes:SetPoint("RIGHT", r.no, "LEFT", -6, 0); r.yes:SetText("Нужно")
         r.yes:SetScript("OnClick", function() SetMark(mapID, "need") end)
+        r.yes:HookScript("OnEnter", function(self) ShowVotersTip(self, mapID, "need") end)
+        r.yes:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
         wrows[i] = r
     end
+
+    -- Кнопка «Опрос» — открыть это окно у остальных игроков группы.
+    local pollBtn = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+    pollBtn:SetSize(160, 24)
+    pollBtn:SetText("Опрос")
+    pollBtn:SetPoint("BOTTOM", win, "BOTTOM", 0, (BOTTOM_PAD - 24) / 2)
+    pollBtn:SetScript("OnClick", function() KR.StartPoll() end)
+    win.PollBtn = pollBtn
 
     win:Hide()
     return win
@@ -355,13 +479,21 @@ end
 function KR.ShowWindow()
     BuildWindow()
     win:Show(); win:Raise()
-    Send("R")        -- попросить у группы их голоса
+    Send("R:")       -- попросить у группы их голоса (было "R" без ":" — не парсилось)
     Broadcast()      -- и отдать свои
     KR.RebuildWindow()
 end
 function KR.ToggleWindow()
     BuildWindow()
     if win:IsShown() then win:Hide() else KR.ShowWindow() end
+end
+
+-- «Опрос»: открыть окно у остальных в группе + собрать их голоса.
+function KR.StartPoll()
+    KR.ShowWindow()
+    Send("O:")       -- получатели с включённым модулем откроют окно у себя
+    Send("R:")       -- и попросим их голоса
+    Broadcast()      -- отдадим свои
 end
 
 -- -------------------------------------------------------------------------
@@ -377,6 +509,9 @@ ns.RegisterEvent("CHAT_MSG_ADDON", function(prefix, msg, _, sender)
         KR.RebuildWindow()
     elseif kind == "R" then
         Broadcast()
+    elseif kind == "O" then
+        -- ведущий просит открыть окно у нас (гейт по включённому модулю)
+        if ns.db and ns.db.features and ns.db.features.keyReroll then KR.ShowWindow() end
     end
 end)
 
