@@ -104,6 +104,17 @@ local function PeriodForMax(maxCharges)
     if maxCharges == 1 then return 18 * 3600 end
     return CHARGE_PERIOD
 end
+-- Точный период по рангу таланта «Синергичный синтез» (пороги скорости 5/15),
+-- если Roster его записал в снапшот. Иначе — оценка по числу зарядов (выше).
+local function PeriodForSynthRank(rank)
+    if rank >= 15 then return 9 * 3600 + 10 * 60 end
+    if rank >= 5  then return 12 * 3600 + 50 * 60 end
+    return 18 * 3600
+end
+local function PeriodFor(c)
+    if c and type(c.synthRank) == "number" then return PeriodForSynthRank(c.synthRank) end
+    return PeriodForMax(c and c.max)
+end
 local function now() return (GetServerTime and GetServerTime()) or 0 end
 
 -- Граница последнего недельного сброса (обновляется в Render). Недельные
@@ -164,7 +175,7 @@ local function EstCharges(c)
     if not c then return nil, nil end
     local cur, max = c.cur or 0, c.max or 0
     if cur >= max then return cur, max end
-    local period = PeriodForMax(max)
+    local period = PeriodFor(c)
     local elapsed = now() - (c.ts or 0)
     if elapsed < 0 then elapsed = 0 end
     local extra
@@ -209,7 +220,7 @@ local function ChargesTimeToFull(c)
     if not c then return nil end
     local cur0, max = c.cur or 0, c.max or 0
     if cur0 >= max then return 0 end
-    local period = PeriodForMax(max)
+    local period = PeriodFor(c)
     local fullAt
     if c.cd and c.cd > 0 then
         fullAt = (c.ts or 0) + c.cd + (max - cur0 - 1) * period

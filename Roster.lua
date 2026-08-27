@@ -40,6 +40,43 @@ local function PeriodForMax(maxCharges)
     return 18 * 3600                                        -- по умолчанию 18ч
 end
 
+-- =========================================================================
+-- ТОЧНЫЙ период по таланту «Синергичный синтез» (Synthesis Synergy).
+-- Раньше период угадывали по числу зарядов (PeriodForMax) — но пороги СКОРОСТИ
+-- у таланта (5 и 15 очков) не меняют число зарядов, поэтому heuristics не
+-- различала, например, 4 очка и 5 очков (заряды те же, а скорость уже другая).
+-- Читаем реальный ранг узла таланта — как это делает CraftSim («Информация о
+-- специализации»): по configID линии профессии и ID узла. Берём УЗЕЛ ПО ID
+-- (не по названию — язык клиента не важен). Работает и без открытого окна.
+--
+-- Пороги таланта: 5 оч → скорость; 10 оч → +1 заряд; 15 оч → скорость; 20 оч →
+-- +2 заряда. На число зарядов (10/20) не смотрим — его читаем напрямую из
+-- GetRecipeCooldown; период зависит только от порогов скорости (5 и 15).
+-- Времена — те, что выписывали раньше: 18ч → 12ч50м → 9ч10м.
+local SYNTH_NODE = 107255   -- «Синергичный синтез»: база, maxRank 20 (Wowhead 107255)
+local ALCH_SKILLLINE = 2906 -- Алхимия Midnight (CraftSim TRADESKILLLINEIDS[Alchemy][11]=2906)
+
+local function PeriodForSynthRank(rank)
+    if rank >= 15 then return 9 * 3600 + 10 * 60 end   -- 9ч10м (взяты оба порога скорости)
+    if rank >= 5  then return 12 * 3600 + 50 * 60 end  -- 12ч50м (один порог скорости)
+    return 18 * 3600                                    -- 18ч (талант не вложен)
+end
+
+-- Ранг узла таланта 0..20, либо nil если дерево ещё не прочиталось / нет API.
+local function ReadSynthRank()
+    if not (C_ProfSpecs and C_ProfSpecs.GetConfigIDForSkillLine
+            and C_Traits and C_Traits.GetNodeInfo) then return nil end
+    local ok, configID = pcall(C_ProfSpecs.GetConfigIDForSkillLine, ALCH_SKILLLINE)
+    if not ok or not configID then return nil end
+    local ok2, info = pcall(C_Traits.GetNodeInfo, configID, SYNTH_NODE)
+    if not ok2 or type(info) ~= "table" or type(info.activeRank) ~= "number" then return nil end
+    -- у прокачанного до конца узла activeRank = maxRanks+1, поэтому -1 = вложено очков
+    local rank = info.activeRank - 1
+    if rank < 0 then rank = 0 end
+    return rank
+end
+Roster.ReadSynthRank = ReadSynthRank
+
 local function ReadCharges(recipeID)
     if not (C_TradeSkillUI and C_TradeSkillUI.GetRecipeCooldown) then return nil end
     -- Рецепт должен быть ИЗУЧЕН. Но поле learned доступно не всегда (данные
@@ -129,9 +166,19 @@ function Roster.ScanCurrent()
         end
     end
     if hasAlchemy then
+        -- Точный период по таланту (если дерево спеки прочиталось). Читаем ОДИН
+        -- раз на скан и применяем к снапшоту зарядов вместо угадывания по числу.
+        local synthRank = ReadSynthRank()
+        if synthRank then e.alchSynthRank = synthRank end
         for _, rid in ipairs(CHARGE_RECIPES) do
             local c = ReadCharges(rid)
-            if c then e.charges[rid] = c end   -- есть свежие данные → обновляем
+            if c then
+                if synthRank then
+                    c.period = PeriodForSynthRank(synthRank)  -- точно по таланту
+                    c.synthRank = synthRank
+                end
+                e.charges[rid] = c   -- есть свежие данные → обновляем
+            end
             -- нет данных → оставляем прежний снапшот (он и так показывается)
         end
     elseif freshProfs then
@@ -327,6 +374,21 @@ ns.RegisterEvent("TRADE_SKILL_LIST_UPDATE", scanAndRefresh)
 ns.RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED", scanAndRefresh)
 ns.RegisterEvent("QUEST_TURNED_IN", scanAndRefresh)
 
+-- Флаг «недельное задание выполнено» у C_QuestLog проставляется чуть ПОЗЖЕ, чем
+-- приходит QUEST_TURNED_IN, поэтому одиночного скана по сдаче не хватало —
+-- иногда таблица обновлялась только после релога. Досканируем по
+-- QUEST_LOG_UPDATE (момент реальной смены флага) с дебаунсом, как это делает
+-- WeeklyKnowledge (bucket QUEST_COMPLETE+QUEST_LOG_UPDATE+QUEST_TURNED_IN).
+local qluScheduled = false
+ns.RegisterEvent("QUEST_LOG_UPDATE", function()
+    if qluScheduled then return end
+    qluScheduled = true
+    C_Timer.After(0.5, function()
+        qluScheduled = false
+        scanAndRefresh()
+    end)
+end)
+
 ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
     C_Timer.After(2, function()
         Roster.ScanCurrent()
@@ -337,3 +399,32 @@ ns.RegisterMessage("RAINON_REAPPLY", function()
     Roster.ScanCurrent()
     Roster.UpdateMinimap()
 end)
+
+-- =========================================================================
+-- [ТЕСТОВАЯ ФУНКЦИЯ] Диагностика таланта «Синергичный синтез» — /rssynth.
+-- Печатает configID линии Алхимии, ранг узла 107255 и выведенный период
+-- восстановления заряда. Нужна, чтобы Миша проверила в игре, что талант
+-- читается верно (ID узла/линии не зависят от языка клиента).
+-- =========================================================================
+SLASH_RAINONSYNTH1 = "/rssynth"
+SlashCmdList.RAINONSYNTH = function()
+    local haveAPI = C_ProfSpecs and C_ProfSpecs.GetConfigIDForSkillLine
+        and C_Traits and C_Traits.GetNodeInfo
+    ns.Print("|cFFFFD100=== Тест: талант «Синергичный синтез» ===|r")
+    ns.Print("API C_ProfSpecs/C_Traits: " .. (haveAPI and "есть" or "НЕТ"))
+    local configID
+    if haveAPI then
+        local ok, cid = pcall(C_ProfSpecs.GetConfigIDForSkillLine, ALCH_SKILLLINE)
+        configID = ok and cid or nil
+    end
+    ns.Print(("линия Алхимии=%d, configID=%s, узел=%d"):format(
+        ALCH_SKILLLINE, tostring(configID), SYNTH_NODE))
+    local rank = ReadSynthRank()
+    if rank == nil then
+        ns.Print("|cFFFF5555ранг не прочитан (дерево спеки не готово / нет данных).|r")
+        return
+    end
+    local period = PeriodForSynthRank(rank)
+    ns.Print(("ранг таланта: %d/20  →  период заряда: %dч %02dм"):format(
+        rank, math.floor(period / 3600), math.floor((period % 3600) / 60)))
+end

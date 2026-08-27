@@ -1750,20 +1750,40 @@ local OUR_NAME_SET = {}
 for _, s in ipairs(OUR_SOUNDS) do OUR_NAME_SET[s[1]] = true end
 
 local _lsm, _lsmRegistered
-local function GetLSM()
+-- Регистрируем наши звуки в общей медиатеке LibSharedMedia. Это стандартный
+-- способ поделиться звуками: BigWigs, NorthernSky (NSRT), DBM и аддон-надстройка
+-- к стандартному Cooldown Manager (CooldownManagerCustomSounds) строят свои
+-- списки звуков из `LSM:List("sound")` — что зарегистрировано, то они и видят.
+-- ВАЖНО: регистрируем ЗАРАНЕЕ (на загрузке / PLAYER_LOGIN), а НЕ лениво при
+-- первом открытии наших настроек. Раньше регистрация висела внутри первого
+-- вызова GetLSM(), поэтому пока Миша не открывал наш селектор звука, чужие
+-- аддоны строили свои списки без наших звуков — и «не видели» RainonUI.
+local function RegisterOurMedia()
     if not _lsm then
         _lsm = (LibStub and LibStub("LibSharedMedia-3.0", true)) or nil
         if _lsm then
             LSM_SOUND = (_lsm.MediaType and _lsm.MediaType.SOUND) or "sound"
         end
     end
-    -- Наши звуки регистрируем один раз, как только LSM есть.
     if _lsm and not _lsmRegistered then
         _lsmRegistered = true
-        for _, s in ipairs(OUR_SOUNDS) do _lsm:Register(LSM_SOUND, s[1], s[2]) end
+        for _, s in ipairs(OUR_SOUNDS) do
+            pcall(_lsm.Register, _lsm, LSM_SOUND, s[1], s[2])
+        end
     end
     return _lsm
 end
+ns.Tools.RegisterOurMedia = RegisterOurMedia
+
+local function GetLSM()
+    return RegisterOurMedia()
+end
+
+-- Зарегистрировать звуки как можно раньше, чтобы чужие аддоны увидели их сразу.
+-- Пытаемся на загрузке файла (LSM уже загружена в .toc до Tools.lua); если по
+-- какой-то причине медиатека появится позже — повторяем на PLAYER_LOGIN.
+RegisterOurMedia()
+ns.RegisterEvent("PLAYER_LOGIN", RegisterOurMedia)
 
 -- Полный список имён звуков для селектора: из медиатеки (наши + игровые +
 -- звуки других аддонов), отсортированный. Без библиотеки — минимальный запас.
@@ -1846,6 +1866,178 @@ ns.Tools.PlaySoundByName = PlaySoundByName
 
 -- Предпросмотр для селектора.
 ns.Tools.PlayResurrectPreview = function() PlaySoundByName(ns.Tools.CurrentSoundName()) end
+
+-- =========================================================================
+-- ИНТЕГРАЦИЯ СО СТАНДАРТНЫМ COOLDOWN MANAGER (CDM)
+-- Добавляем в выпадающий список звуков оповещений способностей ПОДМЕНЮ
+-- «RainonUI» со всеми нашими звуками — чтобы их можно было выбрать прямо в
+-- родном интерфейсе Blizzard. Стандартный CDM свой список строит сам и
+-- LibSharedMedia НЕ читает (в отличие от BigWigs/NSRT), поэтому встраиваемся в
+-- него так же, как это делает аддон CooldownManagerCustomSounds.
+--
+-- Механика: выбранный «звук» у альта CDM — это ЧИСЛО (payload). У Blizzard-
+-- звуков payload положительный (enum), а нашим звукам мы выдаём ОТРИЦАТЕЛЬНЫЕ
+-- payload и запоминаем, какому имени звука они соответствуют (в RainonUIDB,
+-- чтобы выбор пережил /reload). Стандартная система такой звук проиграть не
+-- умеет → перехватываем воспроизведение (`CooldownViewerAlert_PlayAlert`) и
+-- играем файл сами через `PlaySoundByName`.
+-- =========================================================================
+local function NoOp() end
+local function CDMStore()
+    if not ns.db then return nil end
+    local s = ns.db.cdmSound
+    if type(s) ~= "table" then
+        s = { n2p = {}, meta = {}, nxt = -100000 }
+        ns.db.cdmSound = s
+    end
+    s.n2p = s.n2p or {}
+    s.meta = s.meta or {}
+    if type(s.nxt) ~= "number" or s.nxt >= 0 then s.nxt = -100000 end
+    return s
+end
+
+-- Выделить/вернуть отрицательный payload для нашего звука по ИМЕНИ.
+local function CDMPayloadForName(name)
+    local s = CDMStore()
+    if not s or type(name) ~= "string" or name == "" then return nil end
+    local ex = s.n2p[name]
+    if type(ex) == "number" and ex < 0 then
+        s.meta[ex] = { name = name }
+        return ex
+    end
+    local p = s.nxt
+    while s.meta[p] ~= nil or p >= 0 do p = p - 1 end
+    s.nxt = p - 1
+    s.n2p[name] = p
+    s.meta[p] = { name = name }
+    return p
+end
+
+-- Наш ли это payload? Вернём имя звука или nil.
+local function CDMNameForPayload(payload)
+    if type(payload) ~= "number" or payload >= 0 then return nil end
+    local s = CDMStore()
+    local m = s and s.meta[payload]
+    return m and m.name or nil
+end
+
+-- Кнопка «прослушать» на строке меню (как у CDM). Всё под pcall — если каких-то
+-- служебных функций Blizzard в этой версии нет, выбор всё равно работает.
+local function CDMSetupPreview(button, name)
+    pcall(function()
+        if not (MenuTemplates and MenuTemplates.AttachUtilityButton) then return end
+        local play = MenuTemplates.AttachUtilityButton(button)
+        if play.Texture then play.Texture:Hide() end
+        if CooldownViewerAlert_SetupTypeButton then
+            CooldownViewerAlert_SetupTypeButton(play, Enum.CooldownViewerAlertType.Sound)
+        end
+        if MenuTemplates.SetUtilityButtonTooltipText then
+            MenuTemplates.SetUtilityButtonTooltipText(play, COOLDOWN_VIEWER_SETTINGS_ALERT_MENU_PLAY_SAMPLE)
+        end
+        if MenuVariants and MenuTemplates.SetUtilityButtonAnchor then
+            MenuTemplates.SetUtilityButtonAnchor(play, MenuVariants.GearButtonAnchor, button)
+        end
+        if MenuTemplates.SetUtilityButtonClickHandler then
+            MenuTemplates.SetUtilityButtonClickHandler(play, function() PlaySoundByName(name) end)
+        end
+    end)
+end
+
+-- Добавить кнопку нашего звука в подменю. Клик = выбрать звук для альта.
+local function CDMAddSoundButton(ownerFrame, submenu, name)
+    local btn = submenu:CreateButton(name, function()
+        local p = CDMPayloadForName(name)
+        if p and CooldownViewerAlert_SetPayload and ownerFrame.workingCopyOfAlert then
+            CooldownViewerAlert_SetPayload(ownerFrame.workingCopyOfAlert, p)
+        end
+    end, name)
+    if btn.AddInitializer then
+        btn:AddInitializer(function(b) CDMSetupPreview(b, name) end)
+    end
+end
+
+local CDM_MENU_TAG = "COOLDOWN_VIEWER_ALERT_PAYLOAD"
+local cdmHooked = false
+local cdmCurrentEditAlert   -- альт, который редактируется прямо сейчас
+
+local function InstallCDMSounds()
+    if cdmHooked then return end
+    if not (CooldownViewerSettingsEditAlert and CooldownViewerSettingsEditAlert.DisplayForAlert
+            and CooldownViewerAlert_PlayAlert and CooldownViewerAlert_GetType
+            and CooldownViewerAlert_GetPayload and CooldownViewerAlert_SetPayload
+            and Menu and Menu.ModifyMenu
+            and Enum and Enum.CooldownViewerAlertType and Enum.CooldownViewerAlertType.Sound) then
+        return
+    end
+    cdmHooked = true
+    RegisterOurMedia() -- гарантируем, что наши имена резолвятся через LSM
+
+    -- (1) Запоминаем текущий редактируемый альт и чиним подпись выбранного
+    --     значения, ЕСЛИ выбран НАШ звук. Родное меню Blizzard НЕ трогаем —
+    --     именно его перестроение раньше ломало стандартные звуки.
+    hooksecurefunc(CooldownViewerSettingsEditAlert, "DisplayForAlert", function(editAlertFrame)
+        cdmCurrentEditAlert = editAlertFrame
+        local dd = editAlertFrame and editAlertFrame.PayloadDropdown
+        if dd and dd.SetSelectionText then
+            dd:SetSelectionText(function()
+                local a = editAlertFrame.workingCopyOfAlert
+                local pl = a and CooldownViewerAlert_GetPayload(a)
+                local nm = pl and CDMNameForPayload(pl)
+                if nm then return nm end
+                -- не наш payload → отдаём родную подпись Blizzard
+                if a and CooldownViewerAlert_GetPayloadText then
+                    return CooldownViewerAlert_GetPayloadText(a)
+                end
+            end)
+        end
+    end)
+
+    -- (2) ДОБАВЛЯЕМ (не заменяем!) в родное меню подменю «RainonUI».
+    --     Menu.ModifyMenu вставляет элементы в меню по тегу БЕЗ тэйнта соседних
+    --     обработчиков, поэтому стандартные звуки остаются полностью родными и
+    --     рабочими — можно спокойно комбинировать Blizzard + наши.
+    Menu.ModifyMenu(CDM_MENU_TAG, function(_owner, rootDescription)
+        local f = cdmCurrentEditAlert
+        if not (f and f.workingCopyOfAlert and rootDescription and rootDescription.CreateButton) then return end
+        local rsRoot = rootDescription:CreateButton("RainonUI", NoOp)
+        if rsRoot.SetScrollMode then rsRoot:SetScrollMode(400) end
+        for _, sdef in ipairs(OUR_SOUNDS) do
+            CDMAddSoundButton(f, rsRoot, sdef[1])
+        end
+    end)
+
+    -- (3) Играем наш звук, когда оповещение срабатывает (система сама не умеет).
+    hooksecurefunc("CooldownViewerAlert_PlayAlert", function(_item, _name, alert)
+        if type(alert) ~= "table" then return end
+        if CooldownViewerAlert_GetType(alert) ~= Enum.CooldownViewerAlertType.Sound then return end
+        local pl = CooldownViewerAlert_GetPayload(alert)
+        local nm = pl and CDMNameForPayload(pl)
+        if nm then PlaySoundByName(nm) end
+    end)
+end
+ns.Tools.InstallCDMSounds = InstallCDMSounds
+
+-- Стандартный CDM = аддон Blizzard_CooldownViewer (грузится по требованию).
+-- Ставим хук, когда он готов: пробуем на входе и ловим его ADDON_LOADED.
+ns.RegisterEvent("PLAYER_LOGIN", InstallCDMSounds)
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", InstallCDMSounds)
+ns.RegisterEvent("ADDON_LOADED", function(name)
+    if name == "Blizzard_CooldownViewer" then InstallCDMSounds() end
+end)
+
+-- [ТЕСТОВАЯ ФУНКЦИЯ] /rscdm — проверка интеграции со стандартным CDM.
+SLASH_RAINONCDM1 = "/rscdm"
+SlashCmdList.RAINONCDM = function()
+    ns.Print("|cFFFFD100=== Тест: звуки в стандартном CDM ===|r")
+    local ok = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_CooldownViewer")
+    ns.Print("Blizzard_CooldownViewer загружен: " .. (ok and "да" or "нет"))
+    ns.Print("хук установлен: " .. (cdmHooked and "да" or "нет"))
+    if not cdmHooked then InstallCDMSounds(); ns.Print("после попытки установки: " .. (cdmHooked and "да" or "нет")) end
+    local s = CDMStore()
+    ns.Print("наших звуков в библиотеке: " .. #OUR_SOUNDS ..
+        ", выдано payload: " .. (s and (function() local n=0 for _ in pairs(s.n2p) do n=n+1 end return n end)() or 0))
+    ns.Print("Открой настройки Cooldown Manager → у альта «Звук» → в списке будет подменю «RainonUI».")
+end
 
 -- Когда воскрешают ТЕБЯ — окно «Воскреснуть».
 ns.RegisterEvent("RESURRECT_REQUEST", function()

@@ -350,6 +350,36 @@ ns.RegisterEvent("QUEST_TURNED_IN", function()
     RequestBaganatorRefresh()
     if not baganatorReady and #ScanRoots() > 0 then C_Timer.After(0.2, RefreshBank) end
 end)
+
+-- Использование трактата — это НЕ сдача квеста НПЦ, поэтому QUEST_TURNED_IN не
+-- шлётся, а скрытый флаг «использован» проставляется чуть позже. Раньше из-за
+-- этого свечение гасло только после релога. Ловим момент смены флага через
+-- QUEST_LOG_UPDATE, но дёргаем обновление ТОЛЬКО когда набор трактатов к
+-- подсветке реально изменился (QLU шлётся часто — без этого был бы спам).
+local lastGlowSig
+local function GlowSignature()
+    local ids = {}
+    for id, t in pairs(TREATISE) do
+        if myProfs[t.base] and not IsDone(t.quest) then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+local qluScheduled = false
+local function OnQuestFlagsMaybeChanged()
+    qluScheduled = false
+    local sig = GlowSignature()
+    if sig == lastGlowSig then return end
+    lastGlowSig = sig
+    RequestBaganatorRefresh()
+    if not baganatorReady and #ScanRoots() > 0 then RefreshBank() end
+end
+ns.RegisterEvent("QUEST_LOG_UPDATE", function()
+    if qluScheduled then return end
+    qluScheduled = true
+    C_Timer.After(0.3, OnQuestFlagsMaybeChanged)
+end)
+
 ns.RegisterMessage("RAINON_REAPPLY", function()
     EnsureBaganator()
     HookBagFrames()
