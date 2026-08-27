@@ -129,8 +129,7 @@ local TOOLS_OPTIONS = {
     { key = "readybar",   name = "Полоса готовности", desc = "Полоса-таймер во время проверки готовности." },
     { key = "leader",     name = "Лидер группы",   desc = "Крупный текст, когда тебе передали лидерство." },
     { key = "combatdrop", name = "Выход из боя",   desc = "Текст «Бой спал» при выходе из боя в группе." },
-    { key = "combattimer", name = "Таймер боя",
-      desc = "Таймер текущего боя. Позицию можно менять в режиме редактирования Blizzard (Esc → Настройка интерфейса)." },
+    -- «Таймер боя» — в Архиве (1.5.0), см. Архив/CombatTimer.lua.
     { key = "invispotion", name = "Зелье невидимости",
       desc = "Иконка активного зелья невидимости с таймером." },
     { key = "engcloak", name = "Инженерный плащ", desc = "Кулдаун инженерного плаща." },
@@ -638,11 +637,13 @@ local function BuildChecklist(scrollParent, options, getValue, onToggle)
                     r.fs:Hide()
                 else
                     if col == 1 then col = 0; y = y - ROW_H end
-                    y = y - 6
+                    y = y - 10
                     r.fs:ClearAllPoints()
                     r.fs:SetPoint("TOPLEFT", 12, y)
                     r.fs:Show()
-                    y = y - r.fs:GetStringHeight() - 10
+                    -- Отступ снизу как между заголовком и описанием (1.5.0):
+                    -- запас, чтобы многострочный текст не накладывался на галку.
+                    y = y - r.fs:GetStringHeight() - 22
                 end
             else -- check
                 if curCollapsed then
@@ -1333,6 +1334,12 @@ local function CreateOptionsWindow()
             function(v) ns.db.features.abundanceSound = v; ns.db.features.abundanceSoundOn = true end,
             function() if ns.Tools and ns.Tools.PlaySoundByName then ns.Tools.PlaySoundByName(AbundanceSoundName()) end end)
 
+        -- Кнопка поиска группы: ALT+ЛКМ по кнопке миникарты → Premade Groups + «Abu».
+        MakeCheck("groupSearchButton", "Вкл кнопку поиска",
+            "ALT+ЛКМ по кнопке миникарты RainonUI открывает Поиск группы (Группы игроков) " ..
+            "и вписывает «Abu» в строку поиска — останется нажать Enter. Работает вне боя.")
+        y = y - 32
+
         featuresPanel:SetHeight(-y + 12)
     end
 
@@ -1602,10 +1609,16 @@ local function CreateOptionsWindow()
         local disableBtns = {}   -- кнопки/поля, которые гасим под плёнкой
 
         -- Заголовок секции в стиле «Звуки» (GameFontNormalLarge FFD100 + линия).
-        local function Header(title, yy)
+        local function Header(title, yy, note)
             local h = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             h:SetPoint("TOPLEFT", PAD, yy)
             h:SetText(C("FFD100", title))
+            if note then  -- серая подпись справа от заголовка (напр. «Тестовая функция»)
+                local hn = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                hn:SetPoint("BOTTOMLEFT", h, "BOTTOMRIGHT", 8, 1)
+                hn:SetText(note)
+                hn:SetTextColor(0.67, 0.67, 0.67)
+            end
             local line = dungeonPanel:CreateTexture(nil, "ARTWORK")
             line:SetColorTexture(1, 1, 1, 0.15)
             line:SetHeight(1)
@@ -1727,11 +1740,11 @@ local function CreateOptionsWindow()
         -- (галка + селектор во всю ширину, как в «Удобствах»). Дефолт — «RainonUI: Босс».
         Header("Оповещение танка", y); y = y - 30
 
-        local adesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local adesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         adesc:SetPoint("TOPLEFT", PAD, y)
         adesc:SetPoint("TOPRIGHT", -PAD, y)
         adesc:SetJustifyH("LEFT")
-        adesc:SetText("За 5 секунд до удара показывает виджет: иконка танка, тип урона и " ..
+        adesc:SetText("За заданное время до удара показывает виджет: иконка танка, тип урона и " ..
             "обратный отсчёт. Таймеры берём из " .. C("FFD100", "BigWigs") ..
             ". Двигается в режиме редактирования (X, Y, размер).")
         y = y - math.ceil(adesc:GetStringHeight()) - 8
@@ -1758,6 +1771,67 @@ local function CreateOptionsWindow()
         rolesCB:SetScript("OnClick", function(self)
             ns.db.features.dungeonAnnounceOtherRoles = self:GetChecked() and true or false
         end)
+
+        -- Ползунок «Анонс за» (1–5 с, шаг 1) СПРАВА от «Другие роли». Задаёт, за
+        -- сколько секунд до удара показывать виджет (`dungeonAnnounceLead`; читает
+        -- Tools.lua `LeadSeconds`). Стиль — штатный настроечный `MinimalSlider
+        -- WithSteppers` (стрелки ◄ ►, как в опциях игры); фолбэк — классический.
+        do
+            local rowMid = y - 13
+            local function getLead()
+                local v = ns.db and ns.db.features and tonumber(ns.db.features.dungeonAnnounceLead) or 5
+                if v < 1 then v = 1 elseif v > 5 then v = 5 end
+                return math.floor(v + 0.5)
+            end
+            local function setLead(v)
+                v = math.floor((tonumber(v) or 5) + 0.5)
+                if v < 1 then v = 1 elseif v > 5 then v = 5 end
+                if ns.db and ns.db.features then ns.db.features.dungeonAnnounceLead = v end
+                return v
+            end
+            local lbl = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            lbl:SetPoint("LEFT", dungeonPanel, "TOPLEFT", PAD + 272, rowMid)
+            lbl:SetText("Анонс за:")
+
+            local valFS = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            local function refreshVal() valFS:SetText(getLead() .. " с") end
+
+            -- 1) Штатный слайдер настроек (как на скрине Миши).
+            local slider
+            local ok = pcall(function()
+                assert(MinimalSliderWithSteppersMixin, "no MinimalSliderWithSteppers")
+                slider = CreateFrame("Slider", nil, dungeonPanel, "MinimalSliderWithSteppersTemplate")
+                slider:SetPoint("LEFT", lbl, "RIGHT", 12, 0)
+                slider:SetWidth(150)
+                slider:Init(getLead(), 1, 5, 4, nil)   -- steps = (5-1)/1 = 4
+                slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged,
+                    function(_, value) setLead(value); refreshVal() end, slider)
+            end)
+
+            if ok and slider then
+                valFS:SetPoint("LEFT", slider, "RIGHT", 12, 0)
+                refreshVal()
+            else
+                -- 2) Фолбэк: классический слайдер + стрелки.
+                if slider then slider:Hide() end
+                local s = CreateFrame("Slider", nil, dungeonPanel, "UISliderTemplate")
+                s:SetSize(120, 16); s:SetPoint("LEFT", lbl, "RIGHT", 26, 0)
+                s:SetOrientation("HORIZONTAL"); s:SetMinMaxValues(1, 5)
+                s:SetValueStep(1); s:SetObeyStepOnDrag(true)
+                if s.Low then s.Low:SetText("") end
+                if s.High then s.High:SetText("") end
+                if s.Text then s.Text:SetText("") end
+                s:SetValue(getLead()); refreshVal()
+                s:SetScript("OnValueChanged", function(_, v) setLead(v); refreshVal() end)
+                local lb = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+                lb:SetSize(20, 18); lb:SetText("<"); lb:SetPoint("RIGHT", s, "LEFT", -4, 0)
+                lb:SetScript("OnClick", function() s:SetValue(getLead() - 1) end)
+                local rb = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
+                rb:SetSize(20, 18); rb:SetText(">"); rb:SetPoint("LEFT", s, "RIGHT", 4, 0)
+                rb:SetScript("OnClick", function() s:SetValue(getLead() + 1) end)
+                valFS:SetPoint("LEFT", rb, "RIGHT", 6, 0)
+            end
+        end
         y = y - 34
 
         -- Строчка «Звук анонса»: галка слева + селектор в колонке справа (высота
@@ -1813,15 +1887,15 @@ local function CreateOptionsWindow()
         -- полезные таланты. Галка «Напоминание о талантах» + пояснение. Само окно
         -- (ButtonFrameTemplate) строит TalentReminder.lua; тест — из «Тестера»
         -- («Подземелья → Напоминание о талантах») или командой /rstalent.
-        Header("Напоминание о талантах", y); y = y - 30
+        Header("Напоминание о талантах", y, "Тестовая функция"); y = y - 30
 
-        local tdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local tdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         tdesc:SetPoint("TOPLEFT", PAD, y)
         tdesc:SetPoint("TOPRIGHT", -PAD, y)
         tdesc:SetJustifyH("LEFT")
         tdesc:SetText("При входе в подземелье показывает окно с важными талантами " ..
             C("FFD100", "паладина") .. ", если чего-то не хватает. Открыть вручную — " ..
-            C("FFFF00", "/rstalent") .. ". " .. C("AAAAAA", "Тестовая функция."))
+            C("FFFF00", "/rstalent") .. ".")
         y = y - math.ceil(tdesc:GetStringHeight()) - 8
 
         local talCB = ns.MakeCheckButton(dungeonPanel)
@@ -1841,15 +1915,15 @@ local function CreateOptionsWindow()
         -- открывается и они голосуют. Галка = участвовать (авто-открытие).
         -- Само окно (ButtonFrameTemplate) строит KeystonePoll.lua; тест — из
         -- «Тестера» («Подземелья → Опрос ключей») или командой /rspoll.
-        Header("Опрос ключей", y); y = y - 30
+        Header("Опрос ключей", y, "Тестовая функция"); y = y - 30
 
-        local kdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local kdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         kdesc:SetPoint("TOPLEFT", PAD, y)
         kdesc:SetPoint("TOPRIGHT", -PAD, y)
         kdesc:SetJustifyH("LEFT")
         kdesc:SetText("Собирает ключи группы (нужен " .. C("FFD100", "BigWigs") ..
             " у игроков) и голосует, какое подземелье бежать. Окно опроса — " ..
-            C("FFFF00", "/rspoll") .. ". " .. C("AAAAAA", "Тестовая функция."))
+            C("FFFF00", "/rspoll") .. ".")
         y = y - math.ceil(kdesc:GetStringHeight()) - 8
 
         local pollCB = ns.MakeCheckButton(dungeonPanel)
@@ -1876,15 +1950,15 @@ local function CreateOptionsWindow()
         -- Экранный текст после ключа: «Сменить ключ» (пройден в тайм и свой ключ
         -- ≤ пройденного) и «Этот ключ не нужен группе!» (по голосованию реролла).
         -- Окно «Нужно/Не нужно» — отдельное (KeyReroll.lua). Двигается в EditMode.
-        Header("Напоминание: Сменить ключ?", y); y = y - 30
+        Header("Напоминание: Сменить ключ?", y, "Тестовая функция"); y = y - 30
 
-        local rrdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local rrdesc = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         rrdesc:SetPoint("TOPLEFT", PAD, y)
         rrdesc:SetPoint("TOPRIGHT", -PAD, y)
         rrdesc:SetJustifyH("LEFT")
         rrdesc:SetText("После ключа подскажет сменить его (пройден в тайм и ключ не вырос) " ..
             "и что подземелье не нужно группе. Окно голосования — " .. C("FFFF00", "/rsreroll") ..
-            ". Текст двигается в режиме редактирования. " .. C("AAAAAA", "Тестовая функция."))
+            ". Текст двигается в режиме редактирования.")
         y = y - math.ceil(rrdesc:GetStringHeight()) - 8
 
         local rrCB = ns.MakeCheckButton(dungeonPanel)

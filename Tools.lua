@@ -339,6 +339,18 @@ registry.feast      = stFeast
 registry.food       = stFood
 registry.racechange = stRace
 
+-- Крестик закрытия ТОЛЬКО на «Перерыве» (1.5.0): клик прячет стикер вручную,
+-- не дожидаясь конца таймера. Ряд стикеров перестраивается через Deactivate().
+do
+    local x = CreateFrame("Button", nil, stBreak, "UIPanelCloseButton")
+    x:SetSize(26, 26)
+    x:SetPoint("TOPRIGHT", stBreak, "TOPRIGHT", 2, 2)
+    x:SetFrameStrata("HIGH")
+    x:SetFrameLevel((stBreak:GetFrameLevel() or 1) + 40)
+    x:SetScript("OnClick", function() stBreak:Deactivate() end)
+    stBreak.CloseX = x
+end
+
 -- Еда / сытная еда / смена расы: касты в группе
 local function CastSticker(key, sticker, spells, duration, sound)
     ns.WatchGroupCast(spells, function()
@@ -820,21 +832,8 @@ local function HookEditMode()
 end
 
 -- =========================================================================
--- ТАЙМЕР БОЯ (белые цифры с тенью; позиция — через режим редактирования)
+-- ТАЙМЕР БОЯ — перенесён в Архив (1.5.0). Код сохранён в Архив/CombatTimer.lua.
 -- =========================================================================
-local combatTimer = CreateTextDisplay({ text = "00:00", size = 18, x = 466, y = -226,
-                                        selfPoint = "CENTER",
-                                        color = { 1, 1, 1, 1 } })
-combatTimer.Label:SetFont(ns.FONT, 18, "")            -- без грязного контура
-combatTimer.Label:SetShadowColor(0, 0, 0, 0.9)        -- аккуратная тень
-combatTimer.Label:SetShadowOffset(1, -1)
-registry.combattimer = combatTimer
-
-local function ApplyTimerPosition()
-    PositionDisplay(combatTimer, "combattimer")
-end
-
-CreateMover("combattimer", "Таймер боя", 90, 26, ApplyTimerPosition)
 
 -- Блок стикеров: двигаем весь ряд стикеров через мувер (в редакторе — как окно
 -- телепорта). Мувер-прокси размером с область стикеров.
@@ -895,46 +894,9 @@ ns.RegisterMessage("RAINON_DB_READY", function()
     end
 end)
 ns.RegisterMessage("RAINON_REAPPLY", HookEditMode)
-local combatStart = nil
-local combatTicker = nil
 
--- Как в WeakAura: после боя таймер не пропадает, а тускнеет и
--- замирает на моменте окончания боя.
-local function StopCombatTimer()
-    if combatTicker then combatTicker:Cancel() combatTicker = nil end
-    if combatStart then
-        local t = GetTime() - combatStart
-        combatTimer:SetTextValue(string.format("%02d:%02d",
-            math.floor(t / 60), math.floor(t % 60)))
-    end
-    combatStart = nil
-    combatTimer.Label:SetTextColor(0.62, 0.62, 0.62, 0.5)
-end
-
-local function StartCombatTimer()
-    if not enabled("combattimer") then return end
-    combatStart = GetTime()
-    combatTimer.Label:SetTextColor(1, 1, 1, 1)
-    combatTimer:SetTextValue("00:00")
-    combatTimer:Activate(nil)
-    if combatTicker then combatTicker:Cancel() end
-    combatTicker = C_Timer.NewTicker(0.5, function()
-        if not combatStart then return end
-        local t = GetTime() - combatStart
-        combatTimer:SetTextValue(string.format("%02d:%02d", math.floor(t / 60), math.floor(t % 60)))
-    end)
-end
-
-ns.RegisterEvent("ENCOUNTER_START", StartCombatTimer)
-ns.RegisterEvent("PLAYER_REGEN_DISABLED", function()
-    if not combatStart then StartCombatTimer() end
-end)
-ns.RegisterEvent("ENCOUNTER_END", function()
-    if not InCombatLockdown() then StopCombatTimer() end
-end)
-ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
-    if not inEncounter then StopCombatTimer() end
-end)
+-- ТАЙМЕР БОЯ (StartCombatTimer/StopCombatTimer + события ENCOUNTER/REGEN)
+-- перенесён в Архив (1.5.0). См. Архив/CombatTimer.lua.
 
 -- =========================================================================
 -- ПРОФЕССИИ: напоминания о баффах крафта при открытом окне профессии.
@@ -1497,11 +1459,16 @@ local function HideTankPrompt()
     tankMark:Deactivate()
 end
 
--- Проверка готовности началась: если включено и я танк — показываем окно.
+-- Проверка готовности началась: показываем окно, только если
+--   • функция включена галкой;
+--   • мы в группе, но НЕ в рейде (метка танка — фича 5-к, 1.5.0);
+--   • роль игрока — ТАНК (хилу/дамагеру не предлагаем).
 local function ShowTankPrompt()
     if InCombatLockdown() then return end
     if not (ns.db and ns.db.features and ns.db.features.tankMark) then return end
-    if not IsPlayerTank() then return end
+    if not (IsInGroup and IsInGroup()) then return end         -- только в группе
+    if IsInRaid and IsInRaid() then return end                 -- не в рейде (только 5-ки)
+    if not IsPlayerTank() then return end                      -- только танку
     tankMark.Icon:SetTexture(TANKMARK_TEX:format(TankMarkIndex()))
     UpdateTankMarkAttr()
     tankMark:Activate(nil)
@@ -1911,7 +1878,13 @@ local ANNOUNCE = {
     -- DUNGEON: Берлога Налоракка
 }
 
-local ANNOUNCE_LEAD = 5   -- за сколько секунд до удара показываем (и с какой цифры)
+local ANNOUNCE_LEAD = 5   -- дефолт: за сколько секунд до удара показываем
+-- Актуальное значение из настроек (ползунок «Анонс за», 1–5 с). Читаем в рантайме.
+local function LeadSeconds()
+    local v = ns.db and ns.db.features and tonumber(ns.db.features.dungeonAnnounceLead) or ANNOUNCE_LEAD
+    if v < 1 then v = 1 elseif v > 5 then v = 5 end
+    return v
+end
 
 -- Имя звука анонса (nil в БД → голос «Босс»).
 local function DungeonAnnounceSoundName()
@@ -1998,10 +1971,11 @@ local function OnBWBar(key, barText, time)
     if t <= 0 then return end
     barText = tostring(barText or key)
     if pendingAnnounce[barText] then pendingAnnounce[barText]:Cancel(); pendingAnnounce[barText] = nil end
-    if t > ANNOUNCE_LEAD then
-        pendingAnnounce[barText] = C_Timer.NewTimer(t - ANNOUNCE_LEAD, function()
+    local lead = LeadSeconds()
+    if t > lead then
+        pendingAnnounce[barText] = C_Timer.NewTimer(t - lead, function()
             pendingAnnounce[barText] = nil
-            ShowAnnounce(dmg, ANNOUNCE_LEAD, barText)
+            ShowAnnounce(dmg, lead, barText)
         end)
     else
         ShowAnnounce(dmg, t, barText)
@@ -2041,7 +2015,7 @@ ns.RegisterEvent("ENCOUNTER_END", OnBWStopAll)
 
 -- Тест формата/позиции без подземелья: /rsannounce (показывает пример на 5 сек).
 ns.Tools.TestDungeonAnnounce = function()
-    ShowAnnounce("Магический", ANNOUNCE_LEAD, "__test__")
+    ShowAnnounce("Магический", LeadSeconds(), "__test__")
 end
 SLASH_RAINONANNOUNCE1 = "/rsannounce"
 SlashCmdList.RAINONANNOUNCE = function() ns.Tools.TestDungeonAnnounce() end

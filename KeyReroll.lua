@@ -182,21 +182,61 @@ ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
     C_Timer.After(1.5, KR.CheckAfterRun)
 end)
 
-function KR.CheckAfterRun()
-    if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
+-- Скан сумок на эпохальный ключ (как в BigWigs): C_Container + IsItemKeystoneByID,
+-- уровень/подземелье из itemLink (поля 4/5). Возвращает level, mapID.
+local function ScanBagKeystone()
+    local getSlots = C_Container and C_Container.GetContainerNumSlots
+    local getID    = C_Container and C_Container.GetContainerItemID
+    local getLink  = C_Container and C_Container.GetContainerItemLink
+    local isKey    = C_Item and C_Item.IsItemKeystoneByID
+    if not (getSlots and getID and getLink and isKey) then return end
+    for bag = 0, 4 do
+        local slots = getSlots(bag) or 0
+        for slot = 1, slots do
+            local itemID = getID(bag, slot)
+            if itemID and isKey(itemID) then
+                local link = getLink(bag, slot)
+                if type(link) == "string" then
+                    local _, _, _, m, l = strsplit(":", link)
+                    m, l = tonumber(m), tonumber(l)
+                    if m and l then return l, m end
+                end
+            end
+        end
+    end
+end
+KR.ScanBagKeystone = ScanBagKeystone
+
+-- Свой ключ: сначала API, если пусто — скан сумки (API иногда пустой сразу
+-- после прохождения).
+local function ReadOwnedKeystone()
     local lvl = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneLevel()
     local map = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID and C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+    if type(lvl) == "number" and type(map) == "number" and lvl > 0 and map > 0 then
+        return lvl, map
+    end
+    return ScanBagKeystone()
+end
+KR.ReadOwnedKeystone = ReadOwnedKeystone
+
+function KR.CheckAfterRun()
+    if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
+    local lvl, map = ReadOwnedKeystone()
     if type(lvl) ~= "number" or type(map) ~= "number" or lvl <= 0 or map <= 0 then return end
 
+    -- Условие 1: пройдено В ТАЙМ и свой ключ в сумках ≤ уровня пройденного.
+    if not (completion and completion.onTime) then return end
+    if type(completion.level) ~= "number" or lvl > completion.level then return end
+
     local lines = {}
-    if completion and completion.onTime and type(completion.level) == "number" and lvl <= completion.level then
-        local name = DungeonInfo(map)
-        lines[#lines + 1] = ns.C("FFD100", "Сменить ключ: ") .. name .. " " .. ns.C("FFD100", "+" .. lvl)
-    end
+    local name = DungeonInfo(map)
+    lines[#lines + 1] = ns.C("FFD100", "Можешь сменить ключ: ") ..
+        name .. " " .. ns.C("FFD100", "+" .. lvl)
+    -- Условие 2 (отдельно): есть опросник и ключ не нужен → дописываем.
     if NotNeeded(map) then
         lines[#lines + 1] = ns.C("FF5555", "Этот ключ не нужен группе!")
     end
-    if #lines > 0 then KR.ShowMessage(table.concat(lines, "\n"), 12) end
+    KR.ShowMessage(table.concat(lines, "\n"), 12)
 end
 
 -- -------------------------------------------------------------------------
@@ -352,4 +392,20 @@ if ns.Tester and ns.Tester.Add then
             ns.C("FF5555", "Этот ключ не нужен группе!"), 8)
     end)
     ns.Tester.Add("Подземелья", "Окно реролла ключей", function() KR.ShowWindow() end)
+    -- Проверка чтения ключа из сумки: печатаем оба способа (API и скан сумки)
+    -- и показываем результат на экране.
+    ns.Tester.Add("Подземелья", "Ключ в сумке", function()
+        local apiL = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneLevel()
+        local apiM = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID and C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+        local bagL, bagM = ScanBagKeystone()
+        ns.Print("Ключ (API): уровень " .. tostring(apiL) .. ", map " .. tostring(apiM))
+        ns.Print("Ключ (сумка): уровень " .. tostring(bagL) .. ", map " .. tostring(bagM))
+        local L, M = ReadOwnedKeystone()
+        if L and M then
+            KR.ShowMessage(ns.C("FFD100", "Твой ключ: ") .. DungeonInfo(M) ..
+                " " .. ns.C("FFD100", "+" .. L), 8)
+        else
+            KR.ShowMessage(ns.C("FF5555", "Ключ в сумке не найден"), 6)
+        end
+    end)
 end

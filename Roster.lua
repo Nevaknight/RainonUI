@@ -188,6 +188,36 @@ local function UpdatePosition()
         r * math.cos(angle), r * math.sin(angle))
 end
 
+-- ALT+ЛКМ по кнопке миникарты: открыть Поиск группы (Premade Groups) и вписать
+-- «Abu» в строку поиска. МИНИМАЛЬНЫЙ ТЭЙНТ: сам поиск НЕ запускаем (игрок жмёт
+-- Enter) — так не тэйнтим защищённый путь заявок. Только вне боя (окно защищённое).
+local function OpenGroupSearch()
+    if InCombatLockdown() then
+        if ns.Print then ns.Print("Поиск группы — только вне боя.") end
+        return
+    end
+    if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_GroupFinder") end
+    pcall(function()
+        if PVEFrame_ShowFrame then
+            PVEFrame_ShowFrame("GroupFinderFrame", _G.LFGListPVEStub)   -- → «Группы игроков»
+        elseif PVEFrame and not PVEFrame:IsShown() and ShowUIPanel then
+            ShowUIPanel(PVEFrame)
+        end
+    end)
+    -- на след. кадре (фреймы успели создаться) — вписываем текст и ставим фокус.
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            pcall(function()
+                local sp = LFGListFrame and LFGListFrame.SearchPanel
+                if sp and sp.SearchBox then
+                    sp.SearchBox:SetText("Abu")
+                    sp.SearchBox:SetFocus()
+                end
+            end)
+        end)
+    end
+end
+
 local function CreateMinimapButton()
     if minimapButton then return minimapButton end
     if not Minimap then return nil end
@@ -222,7 +252,10 @@ local function CreateMinimapButton()
                 ns.Knowledge:Toggle()
             end
         else
-            if shift then
+            if IsAltKeyDown and IsAltKeyDown() then
+                -- Alt+ЛКМ — Поиск группы (Premade Groups) + текст «Abu» (галка «Вкл кнопку поиска»)
+                if ns.db.features and ns.db.features.groupSearchButton then OpenGroupSearch() end
+            elseif shift then
                 -- Shift+ЛКМ — тестовое окно (панель тестов /rstest)
                 if ns.Tester and ns.Tester.Toggle then ns.Tester.Toggle() end
             elseif SlashCmdList and SlashCmdList.RAINONUI then
@@ -254,6 +287,9 @@ local function CreateMinimapButton()
         Row("ПКМ", "окно знаний и зарядов.")
         Row("Shift + ЛКМ", "тестовое окно.")
         Row("Shift + ПКМ", "опрос ключей.")
+        if ns.db and ns.db.features and ns.db.features.groupSearchButton then
+            Row("Alt + ЛКМ", "поиск группы (Abu).")
+        end
         Row("Удерживайте ЛКМ", "двигать кнопку.")
         GameTooltip:Show()
     end)

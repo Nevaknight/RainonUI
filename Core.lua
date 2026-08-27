@@ -33,13 +33,13 @@ ns.defaults = {
     tools = {
         -- Стикеры
         breaktimer = true, allready = true,
-        feast = true, food = true, racechange = true,
+        feast = false, food = false, racechange = true,   -- feast/food по умолч. ВЫКЛ (1.5.0)
         -- Тексты оповещений
         repair = true, cauldron = true, mail = true, healthstones = true,
         magetable = true, summon = true, mageeat = true,
         -- (consumables/delvemap — в Архиве, 30.07.2026)
         -- Оповещения
-        leader = true, readybar = true, combatdrop = true,
+        leader = true, readybar = true, combatdrop = false,   -- выход из боя по умолч. ВЫКЛ (1.5.0)
         -- Иконки
         invispotion = true, engcloak = true,
         -- Профессии
@@ -49,14 +49,12 @@ ns.defaults = {
         shatterEssence = 236952,    -- itemID частицы для раскалывания
         -- Валюта
         curr_moxie = true,
-        -- Прочее
-        combattimer = true,
+        -- (combattimer — в Архиве → Архив/CombatTimer.lua, 1.5.0)
         -- Муверы окон Blizzard (галки во вкладке «Удобства» → «Общее»),
         -- по умолчанию ВЫКЛ — окна остаются на стандартных местах.
         bonusroll = false, keystone = false,
     },
     positions = {
-        combattimer  = { x = 466, y = -226, scale = 1 },
         prof_phial   = { x = -50, y = 120,  scale = 1 },
         prof_essence = { x = 50,  y = 120,  scale = 1 },
         curr_moxie   = { x = 0,   y = 0,    scale = 1 },
@@ -97,10 +95,12 @@ ns.defaults = {
         -- Виджет (иконка танка | тип урона | цифры) появляется за 5 сек до удара.
         dungeonAnnounceOn      = true,  -- показывать виджет-анонс (галка «ВКЛ анонс»)
         dungeonAnnounceOtherRoles = false, -- анонс и для хила/дд (выкл = только танк)
+        dungeonAnnounceLead    = 5,     -- за сколько секунд до удара показывать (ползунок 1–5)
         dungeonAnnounceSoundOn = true,  -- играть звук на анонсе (галка «Звук анонса»)
         dungeonAnnounceSound   = nil,   -- ИМЯ звука LSM (nil → «RainonUI: Босс (Alice)»)
         -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
         craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
+        groupSearchButton = false, -- ALT+ЛКМ по кнопке миникарты → Поиск группы + текст «Abu»
         -- Режим «крестики скрытия»: на скрываемых элементах UI показываются
         -- крестики; клик по крестику включает галку скрытия и прячет элемент.
         hideSetupMode = false,
