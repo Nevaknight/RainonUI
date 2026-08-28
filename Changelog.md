@@ -1,9 +1,8 @@
 # RainonUI — Changelog
 
-## 1.5.2
+## 1.5.3
 
-* **Knowledge window: professions now sorted alphabetically.** Each character's profession icons line up A→Z instead of following the character's slot order.
-* **Keystone Poll shows every vote.** The count is now split into "for" (left) and "against" (right) with a slim divider, so votes no longer cancel each other out. Hovering the number also lists who hasn't voted yet.
-* **Keystone reroll ("Needed / Not needed") upgrades.** Added a "Poll" button to open the window for your whole group; hover a Needed / Not-needed button to see who voted and who is still deciding; and the end-of-run "you can change your key" reminder is now detected far more reliably.
-* **Minimap button shortcuts reorganized.** Shift + Left click = keystone poll, Shift + Right click = keystone reroll, Alt + Left click = test panel.
-* Removed a group-search shortcut that no longer works with the current Group Finder.
+* **Teleport popup now works for Den of Nalorakk.** This dungeon was missing from the portal list, so its one-click teleport window never appeared — now it does.
+* **Keystone reroll: cleaner group polling.** Players who receive the "Needed / Not needed" poll no longer see the "Poll" button, and the "still deciding" list now counts only players who actually have the addon — no noise from people who can't vote.
+* **Keystone poll: waiting list is addon-only too.** The vote tooltip's "still deciding" list no longer shows players without the addon.
+* **New diagnostic toggle for key reminders.** An optional "dungeon completion test" checkbox (off by default, next to the change-your-key reminder) shows a small two-line window at the end of a run so you can confirm completion detection is firing.

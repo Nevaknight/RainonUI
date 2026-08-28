@@ -1966,6 +1966,19 @@ local function CreateOptionsWindow()
         end)
         y = y - 34
 
+        -- Тест хука конца подземелья: окошко с двумя строками (BigWigs / наш хук)
+        -- на пройденном подземелье — видно, срабатывает ли наш хук. По умолч. ВЫКЛ.
+        local rrTestCB = ns.MakeCheckButton(dungeonPanel)
+        rrTestCB:SetSize(26, 26)
+        rrTestCB:SetPoint("TOPLEFT", PAD, y)
+        rrTestCB:SetChecked(ns.db.features.keyRerollEndTest and true or false)
+        rrTestCB.Text:SetText("Тест: конец подземелья (BigWigs + наш хук)")
+        rrTestCB.Text:SetFontObject("GameFontHighlight")
+        rrTestCB:SetScript("OnClick", function(self)
+            ns.db.features.keyRerollEndTest = self:GetChecked() and true or false
+        end)
+        y = y - 34
+
         local rrBtn = CreateFrame("Button", nil, dungeonPanel, "UIPanelButtonTemplate")
         rrBtn:SetSize(220, 24)
         rrBtn:SetPoint("TOPLEFT", PAD, y)

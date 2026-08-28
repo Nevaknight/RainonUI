@@ -112,10 +112,21 @@ local function VotersReroll(mapID)
     return need, skip
 end
 
--- Кто ещё не отметил это подземелье (ни «нужно», ни «не нужно») — «Думают».
+-- Носители аддона В ТЕКУЩЕЙ группе: я + все, от кого пришёл хоть один пакет
+-- голосов (peers). Игроков БЕЗ аддона не учитываем вовсе (их не видно). Пересекаем
+-- с текущей группой, чтобы не тянуть устаревших пиров из прошлых групп.
+local function AddonUsers()
+    local inGroup = GroupNames()  -- имена текущей группы (+ я)
+    local out = { [MY_NAME] = true }
+    for name in pairs(peers) do if inGroup[name] then out[name] = true end end
+    return out
+end
+
+-- Кто из НОСИТЕЛЕЙ АДДОНА ещё не отметил это подземелье — «Думают». Игроков без
+-- аддона тут нет (задача: не создавать шум по тем, кто и не может проголосовать).
 local function ThinkingReroll(mapID)
     local out = {}
-    for name in pairs(GroupNames()) do
+    for name in pairs(AddonUsers()) do
         local s = StoreFor(name)
         if not (s and s.day == DayId() and s.marks[mapID] ~= nil) then
             out[#out + 1] = ClassColorName(name)
@@ -228,6 +239,43 @@ function KR.ShowMessage(text, seconds)
     overlay._t = C_Timer.NewTimer(seconds or 10, function() overlay:Hide() end)
 end
 
+-- =========================================================================
+-- [ТЕСТОВАЯ ФУНКЦИЯ] Проверка хука «конец подземелья».
+-- Галка «Тест: конец подземелья» (рядом с напоминанием о смене ключа, по
+-- умолчанию ВЫКЛ). Показываем окошко с ДВУМЯ строками: одна загорается от
+-- BigWigs (победа над боссом), другая — от НАШЕГО хука (CHALLENGE_MODE_COMPLETED).
+-- Так сразу видно, срабатывает ли наш хук конца забега (или только BigWigs).
+-- =========================================================================
+local function EndTestOn()
+    return ns.db and ns.db.features and ns.db.features.keyRerollEndTest
+end
+local endTest = { bw = false, our = false }
+local function EndTestRender()
+    if not EndTestOn() then return end
+    local function mark(b) return b and ns.C("40D040", "✓") or ns.C("888888", "…") end
+    KR.ShowMessage(ns.C("FFD100", "Тест: конец подземелья") .. "\n" ..
+        mark(endTest.bw) .. " BigWigs (победа над боссом)\n" ..
+        mark(endTest.our) .. " Наш хук (CHALLENGE_MODE_COMPLETED)", 20)
+end
+local function EndTestReset() endTest.bw = false; endTest.our = false end
+
+-- BigWigs шлёт BigWigs_OnBossWin на смерть любого босса (в M+ последний = конец).
+local bwEndListener = {}
+local function HookBigWigsEnd()
+    if bwEndListener._hooked then return end
+    if _G.BigWigsLoader and _G.BigWigsLoader.RegisterMessage then
+        _G.BigWigsLoader.RegisterMessage(bwEndListener, "BigWigs_OnBossWin", function()
+            if not EndTestOn() then return end
+            endTest.bw = true
+            EndTestRender()
+        end)
+        bwEndListener._hooked = true
+    end
+end
+ns.RegisterEvent("PLAYER_LOGIN", HookBigWigsEnd)
+ns.RegisterMessage("RAINON_REAPPLY", HookBigWigsEnd)
+ns.RegisterEvent("CHALLENGE_MODE_START", EndTestReset)
+
 -- -------------------------------------------------------------------------
 -- Логика после завершения ключа
 -- -------------------------------------------------------------------------
@@ -260,6 +308,8 @@ local function ScheduleKeyCheck()
 end
 
 ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
+    -- [ТЕСТ] наш хук конца подземелья — до гейта keyReroll (галка теста отдельная).
+    if EndTestOn() then endTest.our = true; EndTestRender() end
     if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
     local level, onTime
     pcall(function()
@@ -476,8 +526,13 @@ function KR.RebuildWindow()
     end
 end
 
-function KR.ShowWindow()
+-- receiver=true → окно пришло по опросу (O:) → кнопку «Опрос» НЕ показываем.
+function KR.ShowWindow(receiver)
     BuildWindow()
+    win.isReceiver = receiver and true or false
+    if win.PollBtn then
+        if win.isReceiver then win.PollBtn:Hide() else win.PollBtn:Show() end
+    end
     win:Show(); win:Raise()
     Send("R:")       -- попросить у группы их голоса (было "R" без ":" — не парсилось)
     Broadcast()      -- и отдать свои
@@ -490,7 +545,7 @@ end
 
 -- «Опрос»: открыть окно у остальных в группе + собрать их голоса.
 function KR.StartPoll()
-    KR.ShowWindow()
+    KR.ShowWindow(false)   -- у ведущего кнопка «Опрос» остаётся
     Send("O:")       -- получатели с включённым модулем откроют окно у себя
     Send("R:")       -- и попросим их голоса
     Broadcast()      -- отдадим свои
@@ -510,8 +565,9 @@ ns.RegisterEvent("CHAT_MSG_ADDON", function(prefix, msg, _, sender)
     elseif kind == "R" then
         Broadcast()
     elseif kind == "O" then
-        -- ведущий просит открыть окно у нас (гейт по включённому модулю)
-        if ns.db and ns.db.features and ns.db.features.keyReroll then KR.ShowWindow() end
+        -- ведущий просит открыть окно у нас (гейт по включённому модулю).
+        -- Мы ПОЛУЧАТЕЛЬ → окно без кнопки «Опрос».
+        if ns.db and ns.db.features and ns.db.features.keyReroll then KR.ShowWindow(true) end
     end
 end)
 

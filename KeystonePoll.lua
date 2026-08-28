@@ -112,7 +112,7 @@ local function VotersFor(mapID)
     return yes, no
 end
 
--- Имена всех в группе (включая себя) — чтобы понять, кого ждём.
+-- Имена текущей группы (для отсечения устаревших записей).
 local function GroupNames()
     local out = {}
     if ns.IterateGroup then
@@ -125,10 +125,20 @@ local function GroupNames()
     return out
 end
 
--- Кто ещё НЕ проголосовал по этому ключу (ни «за», ни «против») — «Думают».
+-- Носители аддона В ТЕКУЩЕЙ группе: я + все, кто прислал свой голос (V:), даже
+-- пустой (получатели анонсируют себя при открытии). Игроков БЕЗ аддона тут нет —
+-- их не видно, чтобы не создавать шум «ожидания» по тем, кто и не голосует.
+local function AddonPresent()
+    local inGroup = GroupNames()
+    local out = { [MY_NAME] = true }
+    for name in pairs(votes) do if inGroup[name] then out[name] = true end end
+    return out
+end
+
+-- Кто из НОСИТЕЛЕЙ АДДОНА ещё НЕ проголосовал по этому ключу — «Думают».
 local function Thinking(mapID)
     local out = {}
-    for name in pairs(GroupNames()) do
+    for name in pairs(AddonPresent()) do
         local v = votes[name]
         if not (IsYes(v, mapID) or IsNo(v, mapID)) then
             out[#out + 1] = ClassColorName(name)
@@ -489,6 +499,10 @@ ns.RegisterEvent("CHAT_MSG_ADDON", function(prefix, msg, _, sender)
                 end
             end
             KP.Show(true)   -- получатель: окно без кнопки «Опрос»
+            -- Анонсируем себя (даже пустым голосом), чтобы ведущий и другие
+            -- получатели знали, что у нас есть аддон — иначе нас не будет в
+            -- «Думают», и наоборот, без аддона игроков там не будет вовсе.
+            Send("V:" .. Serialize(MyVote()))
         end
     elseif kind == "V" then
         if not isMine then

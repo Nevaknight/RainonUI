@@ -42,6 +42,7 @@ local SEASON_PORTALS = {
     { spellID = 393256,  names = { "ruby life pools", "рубиновые омуты жизни", "рубиновые омуты" } },
     { spellID = 1286828, names = { "temple of sethraliss", "храм сетралисс" } },
     { spellID = 1286801, names = { "the blinding vale", "слепящая долина" } },
+    { spellID = 1286807, names = { "den of nalorakk", "берлога налоракка" } },
 }
 
 -- имя (нижним регистром, без хвостовой скобки) -> запись портала
@@ -354,6 +355,44 @@ ns.Teleport = {
 SLASH_RAINONTELETEST1 = "/rstptest"
 SlashCmdList.RAINONTELETEST = function() ns.Teleport.Test() end
 
+-- =========================================================================
+-- [ТЕСТОВАЯ ФУНКЦИЯ] Диагностика вступления: почему окно НЕ всплыло при join.
+-- `/rstpdiag` «вооружает» одноразовую печать на СЛЕДУЮЩЕМ LFG_LIST_JOINED_GROUP —
+-- показывает, что аддон реально видит (секрет ли поля, имя подземелья, матч в
+-- таблице порталов). Логику показа не трогает.
+-- =========================================================================
+local diagArmed = false
+local function DiagJoin(resultID)
+    diagArmed = false
+    ns.Print("|cFFFFD100=== Диагностика телепорта (вступление) ===|r")
+    if not (C_LFGList and C_LFGList.GetSearchResultInfo) then
+        ns.Print("C_LFGList.GetSearchResultInfo нет."); return
+    end
+    local ok, info = pcall(C_LFGList.GetSearchResultInfo, resultID)
+    if not ok or type(info) ~= "table" then
+        ns.Print("GetSearchResultInfo не отдал таблицу (ok=" .. tostring(ok) .. ")."); return
+    end
+    local aid = info.activityID
+    if aid == nil and info.activityIDs and not issecretvalue(info.activityIDs) then aid = info.activityIDs[1] end
+    ns.Print("activityID: " .. (issecretvalue(aid) and "СЕКРЕТ" or tostring(aid)))
+    if issecretvalue(aid) or aid == nil then
+        ns.Print("→ стоп: нет читаемого activityID (Blizzard прячет как секрет).")
+        return
+    end
+    local act = C_LFGList.GetActivityInfoTable and C_LFGList.GetActivityInfoTable(aid)
+    if type(act) ~= "table" then ns.Print("GetActivityInfoTable не отдал таблицу."); return end
+    local fn = act.fullName
+    ns.Print("fullName: " .. (issecretvalue(fn) and "СЕКРЕТ" or tostring(fn)))
+    if type(fn) ~= "string" or issecretvalue(fn) then ns.Print("→ стоп: имя нечитаемо."); return end
+    local sid = ResolveSpellByName(fn)
+    ns.Print("матч в SEASON_PORTALS: " .. (sid and ("есть, spellID " .. sid) or "НЕ найден (имя не в таблице)"))
+end
+SLASH_RAINONTPDIAG1 = "/rstpdiag"
+SlashCmdList.RAINONTPDIAG = function()
+    diagArmed = true
+    ns.Print("Диагностика телепорта включена — вступи в группу ЛФГ на подземелье.")
+end
+
 -- -------------------------------------------------------------------------
 -- События
 -- -------------------------------------------------------------------------
@@ -362,6 +401,7 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 end)
 
 ns.RegisterEvent("LFG_LIST_JOINED_GROUP", function(searchResultID)
+    if diagArmed then DiagJoin(searchResultID) end
     if not Enabled() then return end
     -- Момент вступления в группу — инфо результата читаемо (в отличие от фазы
     -- просмотра/заявки). Захватываем сразу: результат может протухнуть.
