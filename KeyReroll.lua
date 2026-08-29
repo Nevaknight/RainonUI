@@ -240,41 +240,84 @@ function KR.ShowMessage(text, seconds)
 end
 
 -- =========================================================================
--- [ТЕСТОВАЯ ФУНКЦИЯ] Проверка хука «конец подземелья».
--- Галка «Тест: конец подземелья» (рядом с напоминанием о смене ключа, по
--- умолчанию ВЫКЛ). Показываем окошко с ДВУМЯ строками: одна загорается от
--- BigWigs (победа над боссом), другая — от НАШЕГО хука (CHALLENGE_MODE_COMPLETED).
--- Так сразу видно, срабатывает ли наш хук конца забега (или только BigWigs).
+-- [ТЕСТОВАЯ ФУНКЦИЯ] Диагностика проверки ключа — весь конвейер в одном окне.
+-- Галка «Тест: конец подземелья» (рядом с напоминанием о смене ключа, ВЫКЛ по
+-- умолчанию). BigWigs для «показать при завершении» использует ТО ЖЕ событие
+-- `CHALLENGE_MODE_COMPLETED` (+5с), что и мы, поэтому сравнивать нечего — вместо
+-- этого показываем НАШ конвейер и ищем, где обрыв:
+--   1) поймано ли CHALLENGE_MODE_COMPLETED (+ уровень, в тайм);
+--   2) прочитался ли НОВЫЙ ключ после ретраев (+уровень, подземелье);
+--   3) вердикт: покажется ли напоминание «Сменить ключ» и ПОЧЕМУ (или нет).
 -- =========================================================================
 local function EndTestOn()
     return ns.db and ns.db.features and ns.db.features.keyRerollEndTest
 end
-local endTest = { bw = false, our = false }
-local function EndTestRender()
-    if not EndTestOn() then return end
-    local function mark(b) return b and ns.C("40D040", "✓") or ns.C("888888", "…") end
-    KR.ShowMessage(ns.C("FFD100", "Тест: конец подземелья") .. "\n" ..
-        mark(endTest.bw) .. " BigWigs (победа над боссом)\n" ..
-        mark(endTest.our) .. " Наш хук (CHALLENGE_MODE_COMPLETED)", 20)
+local diag
+local function DiagRender()
+    if not (EndTestOn() and diag) then return end
+    local function yn(b) return b and ns.C("40D040", "да") or ns.C("FF5555", "нет") end
+    local L = { ns.C("FFD100", "Тест: проверка ключа") }
+    L[#L + 1] = ns.C("40D040", "✓") .. " Событие поймано  (ур. " .. tostring(diag.level) ..
+        ", в тайм: " .. yn(diag.onTime) .. ")"
+    if diag.keyRead then
+        if diag.keyLvl then
+            L[#L + 1] = ns.C("40D040", "✓") .. " Новый ключ: " .. (DungeonInfo(diag.keyMap)) ..
+                " +" .. diag.keyLvl
+        else
+            L[#L + 1] = ns.C("FF5555", "✗") .. " Новый ключ НЕ прочитан (API и сумка пусты)"
+        end
+        if diag.verdict then L[#L + 1] = diag.verdict end
+    else
+        L[#L + 1] = ns.C("888888", "…") .. " читаю новый ключ…"
+    end
+    KR.ShowMessage(table.concat(L, "\n"), 30)
 end
-local function EndTestReset() endTest.bw = false; endTest.our = false end
-
--- BigWigs шлёт BigWigs_OnBossWin на смерть любого босса (в M+ последний = конец).
-local bwEndListener = {}
-local function HookBigWigsEnd()
-    if bwEndListener._hooked then return end
-    if _G.BigWigsLoader and _G.BigWigsLoader.RegisterMessage then
-        _G.BigWigsLoader.RegisterMessage(bwEndListener, "BigWigs_OnBossWin", function()
-            if not EndTestOn() then return end
-            endTest.bw = true
-            EndTestRender()
-        end)
-        bwEndListener._hooked = true
+local function DiagVerdict()
+    if not diag.onTime then
+        diag.verdict = ns.C("FF5555", "→ напоминания не будет: пройдено НЕ в тайм."); return
+    end
+    if not diag.keyLvl then
+        diag.verdict = ns.C("FF5555", "→ напоминания не будет: новый ключ не прочитался."); return
+    end
+    if type(diag.level) == "number" and diag.keyLvl > diag.level then
+        diag.verdict = ns.C("FF5555", "→ напоминания не будет: новый ключ +" .. diag.keyLvl ..
+            " ВЫШЕ пройденного +" .. diag.level .. "."); return
+    end
+    local extra = NotNeeded(diag.keyMap) and "  (+ «не нужен группе»)" or ""
+    diag.verdict = ns.C("40D040", "→ напоминание ПОКАЗАЛОСЬ БЫ: можешь сменить ключ" .. extra .. ".")
+    if not (ns.db and ns.db.features and ns.db.features.keyReroll) then
+        diag.verdict = diag.verdict .. ns.C("888888",
+            "\n(но модуль «Напоминание о смене ключа» ВЫКЛ — реального показа нет)")
     end
 end
-ns.RegisterEvent("PLAYER_LOGIN", HookBigWigsEnd)
-ns.RegisterMessage("RAINON_REAPPLY", HookBigWigsEnd)
-ns.RegisterEvent("CHALLENGE_MODE_START", EndTestReset)
+local function RunEndTest()
+    local level, onTime
+    pcall(function()
+        local _, lvl, _, ot = C_ChallengeMode.GetCompletionInfo()
+        level, onTime = lvl, ot
+    end)
+    diag = { level = level, onTime = onTime, keyRead = false }
+    DiagRender()
+    local tries = { 1.5, 3, 5, 8 }
+    local finished = false
+    local function attempt(isLast)
+        if finished then return end
+        local lvl, map
+        if KR.ReadOwnedKeystone then lvl, map = KR.ReadOwnedKeystone() end
+        if lvl and map then
+            finished = true
+            diag.keyLvl, diag.keyMap, diag.keyRead = lvl, map, true
+            DiagVerdict(); DiagRender()
+        elseif isLast then
+            finished = true
+            diag.keyRead = true
+            DiagVerdict(); DiagRender()
+        end
+    end
+    for idx, d in ipairs(tries) do
+        C_Timer.After(d, function() attempt(idx == #tries) end)
+    end
+end
 
 -- -------------------------------------------------------------------------
 -- Логика после завершения ключа
@@ -308,8 +351,12 @@ local function ScheduleKeyCheck()
 end
 
 ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
-    -- [ТЕСТ] наш хук конца подземелья — до гейта keyReroll (галка теста отдельная).
-    if EndTestOn() then endTest.our = true; EndTestRender() end
+    -- Принудительно обновляем данные M+ (как делает BigWigs перед показом ключей):
+    -- сразу после забега `GetOwnedKeystone*` бывает пустым, и новый ключ не читается.
+    -- Дальше ключ добираем ретраями (ScheduleKeyCheck / RunEndTest).
+    if C_MythicPlus and C_MythicPlus.RequestMapInfo then pcall(C_MythicPlus.RequestMapInfo) end
+    -- [ТЕСТ] диагностика конвейера проверки ключа — до гейта keyReroll (галка теста отдельная).
+    if EndTestOn() then RunEndTest() end
     if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
     local level, onTime
     pcall(function()

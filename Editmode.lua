@@ -118,6 +118,25 @@ end
 
 -- Глобальные колбэки Edit Mode регистрируем один раз
 local hookedGlobals = false
+local dialogHooked = false
+
+-- Один раз хукаем общий диалог редактора: для фреймов с opts.hideDefaultButton
+-- прячем ВСТРОЕННУЮ кнопку «По умолчанию» (сброс настроек) — оставляем только
+-- «Вернуть позицию». Для остальных окон кнопку возвращаем (Show), чтобы не
+-- задеть их. Инстанция диалога создаётся в LEM:AddFrame (после первого Register).
+local function HookDialogDefaultButton()
+    if dialogHooked or not (LEM and LEM.internal and LEM.internal.dialog) then return end
+    local dlg = LEM.internal.dialog
+    if type(dlg.Update) ~= "function" then return end
+    dialogHooked = true
+    hooksecurefunc(dlg, "Update", function(self, selection)
+        local rb = self.Settings and self.Settings.ResetButton
+        if not rb then return end
+        local frame = selection and selection.parent
+        local d = frame and registered[frame]
+        if d and d.opts and d.opts.hideDefaultButton then rb:Hide() else rb:Show() end
+    end)
+end
 local function EnsureGlobalCallbacks()
     if hookedGlobals or not LEM then return end
     hookedGlobals = true
@@ -178,6 +197,8 @@ function ns.EditMode.Register(frame, opts)
         LEM:RefreshFrameSettings(frame)
     end, { point = "CENTER", x = 0, y = 0 }, opts.name)
 
+    HookDialogDefaultButton()   -- инстанция диалога уже создана в AddFrame
+
     -- пределы координат по размеру экрана (± половина экрана от центра)
     local uw = UIParent:GetWidth() or 1920
     local uh = UIParent:GetHeight() or 1080
@@ -201,7 +222,11 @@ function ns.EditMode.Register(frame, opts)
             set = function(_, v) c.y = v; ApplyLayout(frame, opts) end,
             formatter = CoordFmt,
         },
-        {
+    }
+    -- «Размер» (масштаб) — если модуль не отказался от него (opts.noScale).
+    -- Напр. у тест-полосы вместо масштаба свои слайдеры «Ширина»/«Высота».
+    if not opts.noScale then
+        settings[#settings + 1] = {
             name = "Размер",
             kind = LEM.SettingType.Slider,
             default = 1.0,
@@ -211,8 +236,8 @@ function ns.EditMode.Register(frame, opts)
             get = function() return c.scale end,
             set = function(_, v) c.scale = v; ApplyLayout(frame, opts) end,
             formatter = PctScale,
-        },
-    }
+        }
+    end
     -- Доп. настройки модуля (например слайдер «Ширина» у полосы готовности).
     if opts.extraSettings then
         for _, s in ipairs(opts.extraSettings) do settings[#settings + 1] = s end

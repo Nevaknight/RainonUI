@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.5.3
+## Version: 1.5.4
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB
 ## OptionalDeps: MythicDungeonTools
@@ -42,3 +42,4 @@ MDTTooltip.lua
 TalentReminder.lua
 KeystonePoll.lua
 KeyReroll.lua
+TestBar.lua

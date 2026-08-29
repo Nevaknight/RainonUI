@@ -1966,13 +1966,14 @@ local function CreateOptionsWindow()
         end)
         y = y - 34
 
-        -- Тест хука конца подземелья: окошко с двумя строками (BigWigs / наш хук)
-        -- на пройденном подземелье — видно, срабатывает ли наш хук. По умолч. ВЫКЛ.
+        -- Тест-диагностика проверки ключа: на пройденном подземелье окошко с
+        -- конвейером (событие → чтение нового ключа → вердикт), чтобы понять, где
+        -- обрывается «Сменить ключ». По умолчанию ВЫКЛ.
         local rrTestCB = ns.MakeCheckButton(dungeonPanel)
         rrTestCB:SetSize(26, 26)
         rrTestCB:SetPoint("TOPLEFT", PAD, y)
         rrTestCB:SetChecked(ns.db.features.keyRerollEndTest and true or false)
-        rrTestCB.Text:SetText("Тест: конец подземелья (BigWigs + наш хук)")
+        rrTestCB.Text:SetText("Тест: проверка ключа (диагностика)")
         rrTestCB.Text:SetFontObject("GameFontHighlight")
         rrTestCB:SetScript("OnClick", function(self)
             ns.db.features.keyRerollEndTest = self:GetChecked() and true or false
@@ -2022,6 +2023,92 @@ local function CreateOptionsWindow()
     -- Панель «Звуки» (приглушение) строит модуль SoundMute. Модуль лежит в
     -- отдельном блоке .toc — если его отключить (#), вкладки просто не будет,
     -- а всё окно продолжит работать как прежде.
+    -- Панель «Тест»: экспериментальные функции/оформление (в разработке).
+    local testPanel = CreateFrame("Frame", nil, container)
+    testPanel:SetSize(596, 200)
+    testPanel:SetPoint("TOPLEFT")
+    do
+        local PAD = 12
+        local y = -6
+        local function Header(title, yy, note)
+            local h = testPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            h:SetPoint("TOPLEFT", PAD, yy)
+            h:SetText(C("FFD100", title))
+            if note then
+                local n = testPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                n:SetPoint("LEFT", h, "RIGHT", 8, 0)
+                n:SetText(note)
+            end
+            local line = testPanel:CreateTexture(nil, "ARTWORK")
+            line:SetColorTexture(1, 1, 1, 0.15)
+            line:SetPoint("TOPLEFT", PAD, yy - 20)
+            line:SetPoint("TOPRIGHT", -PAD, yy - 20)
+            line:SetHeight(1)
+            return h
+        end
+
+        -- Заголовок: «[Божественный резонанс]» — в цвете спелл-линка (как способности),
+        -- при наведении — игровая подсказка способности (ID 386738).
+        local RES_SPELL = 386738
+        local resName = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(RES_SPELL)) or "Божественный резонанс"
+        local hFS = Header("Полоса танка для таланта " .. "|cff71d5ff[" .. resName .. "]|r", y, "Тестовая функция")
+        y = y - 30
+        if hFS then
+            local hover = CreateFrame("Frame", nil, testPanel)
+            hover:SetPoint("TOPLEFT", hFS, "TOPLEFT", 0, 0)
+            hover:SetPoint("BOTTOMRIGHT", hFS, "BOTTOMRIGHT", 0, 0)
+            hover:EnableMouse(true)
+            hover:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetSpellByID(RES_SPELL)
+                GameTooltip:Show()
+            end)
+            hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+
+        local d = testPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        d:SetPoint("TOPLEFT", PAD, y); d:SetPoint("TOPRIGHT", -PAD, y); d:SetJustifyH("LEFT")
+        d:SetText("Удобное отслеживание |cff71d5ff[Божественного резонанса]|r в виде полосы с засечками. " ..
+            "Работает ТОЛЬКО в специализации — защита.")
+        y = y - math.ceil(d:GetStringHeight()) - 10
+
+        local cb = ns.MakeCheckButton(testPanel)
+        cb:SetSize(26, 26)
+        cb:SetPoint("TOPLEFT", PAD, y)
+        cb:SetChecked(ns.db.features.testBar and true or false)
+        cb.Text:SetText("ВКЛ полоску")
+        cb.Text:SetFontObject("GameFontHighlight")
+        cb:SetScript("OnClick", function(self)
+            ns.db.features.testBar = self:GetChecked() and true or false
+            if ns.TestBar and ns.TestBar.Refresh then ns.TestBar.Refresh() end
+        end)
+        y = y - 34
+
+        -- Показывать/скрывать иконку полосы.
+        local iconCB = ns.MakeCheckButton(testPanel)
+        iconCB:SetSize(26, 26)
+        iconCB:SetPoint("TOPLEFT", PAD, y)
+        iconCB:SetChecked(not (ns.db.features.testBarIcon == false))
+        iconCB.Text:SetText("Показывать иконку")
+        iconCB.Text:SetFontObject("GameFontHighlight")
+        iconCB:SetScript("OnClick", function(self)
+            ns.db.features.testBarIcon = self:GetChecked() and true or false
+            if ns.TestBar and ns.TestBar.Refresh then ns.TestBar.Refresh() end
+        end)
+        y = y - 34
+
+        local btn = CreateFrame("Button", nil, testPanel, "UIPanelButtonTemplate")
+        btn:SetSize(220, 24)
+        btn:SetPoint("TOPLEFT", PAD, y)
+        btn:SetText("Предпросмотр полоски")
+        btn:SetScript("OnClick", function()
+            if ns.TestBar and ns.TestBar.Test then ns.TestBar.Test() end
+        end)
+        y = y - 34
+
+        testPanel:SetHeight(-y + 12)
+    end
+
     local mutePanel
     if ns.SoundMute and ns.SoundMute.BuildPanel then
         mutePanel = ns.SoundMute.BuildPanel(container)
@@ -2048,6 +2135,9 @@ local function CreateOptionsWindow()
         PANELS[#PANELS + 1] = { panel = mutePanel,
             intro = "Приглушение отдельных звуков. Действует на всех персонажей аккаунта." }
     end
+    local testIndex = #PANELS + 1
+    PANELS[testIndex] = { panel = testPanel,
+        intro = "Тестовые функции и оформление — в разработке." }
 
     local tabs = {}
     local function SelectTab(index)
@@ -2060,6 +2150,8 @@ local function CreateOptionsWindow()
         end
         container:SetHeight(PANELS[index].panel:GetHeight())
         intro:SetText(PANELS[index].intro)
+        -- Вводный текст на вкладке «Тест» — по центру, на остальных — слева.
+        intro:SetJustifyH(PANELS[index].panel == testPanel and "CENTER" or "LEFT")
         -- На вкладке «Скрипты» сверху две кнопки, поэтому пояснение сдвигаем
         -- ниже них; на остальных вкладках кнопок нет и текст вверху.
         local isHide = (index == 1)
@@ -2159,6 +2251,9 @@ local function CreateOptionsWindow()
     -- «Ссылки» — в ленте под «Звуки» (слот 7) с отступом в одну иконку:
     -- слот 8 пустой, вкладка на слоте 9.
     MakeTab(6, 5341597, "Ссылки", 9)
+    -- «Тест» — на свободном слоте 8 (между «Звуки» и «Ссылки»).
+    local testTabIcon = (ns.GetSpellTexture and ns.GetSpellTexture(375576)) or 134400
+    MakeTab(testIndex, testTabIcon, "Тест", 8)
 
 
     SelectTab(1)
