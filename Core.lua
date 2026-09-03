@@ -52,7 +52,7 @@ ns.defaults = {
         -- (combattimer — в Архиве → Архив/CombatTimer.lua, 1.5.0)
         -- Муверы окон Blizzard (галки во вкладке «Удобства» → «Общее»),
         -- по умолчанию ВЫКЛ — окна остаются на стандартных местах.
-        bonusroll = false, keystone = false,
+        bonusroll = false, keystone = false, alerts = false,
     },
     positions = {
         prof_phial   = { x = -50, y = 120,  scale = 1 },
@@ -61,6 +61,7 @@ ns.defaults = {
         readybar     = { x = 0,   y = -180, scale = 1, width = 220 },
         bonusroll    = { x = 0,   y = -240, scale = 1 },
         keystone     = { x = 0,   y = 40,   scale = 1 },
+        alerts       = { x = 0,   y = -200, scale = 1 },
         tankmark     = { x = 0,   y = 160,  scale = 1 },
         stickers     = { x = 0,   y = 300,  scale = 1 },
         dungeonannounce = { x = 0, y = -120, scale = 1 },
@@ -120,6 +121,7 @@ ns.defaults = {
         testBarIcon = true,   -- показывать иконку на полосе
         testBarW = 200,       -- ширина полосы (px)
         testBarH = 25,        -- высота полосы (px)
+        testBarColor = "pink",-- цвет полосы (ключ из TestBar.COLORS)
     },
     -- Настройки окна знаний/зарядов
     knowledge = {

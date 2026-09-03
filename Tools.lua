@@ -329,8 +329,8 @@ local textStack   = CreateRow({ x = 0, y = 80, spacing = 10,
 local stBreak    = CreateSticker(stickerRow, MYICON .. "break.tga",      "ПЕРЕРЫВ", nil,
                                  { portraitTimer = true })  -- круг слева с таймером
 local stAllReady = CreateSticker(stickerRow, MYICON .. "allready.tga",   "ВСЕ ГОТОВЫ")
-local stFeast    = CreateSticker(stickerRow, MYICON .. "feast.tga",      "СЫТНАЯ ЕДА")
-local stFood     = CreateSticker(stickerRow, MYICON .. "food.tga",       "ОБЫЧНАЯ ЕДА")
+local stFeast    = CreateSticker(stickerRow, 1387652,                    "СЫТНАЯ ЕДА")
+local stFood     = CreateSticker(stickerRow, 1387652,                    "ОБЫЧНАЯ ЕДА")
 local stRace     = CreateSticker(stickerRow, MYICON .. "racechange.tga", "СМЕНА РАСЫ")
 
 registry.breaktimer = stBreak
@@ -360,14 +360,10 @@ local function CastSticker(key, sticker, spells, duration, sound)
     end)
 end
 
--- Сытная еда (пиршества), текущие ID Midnight (устаревшее TWW убрано).
--- Набор пиршеств сверен с Northern Sky RT + наше «Сытное королевское жаркое».
-CastSticker("feast",      stFeast, { 1259657, 1278915, 1259658, 1278929,
-                                     1237104, 1278909, 1259659, 1278895,
-                                     1232065 }, 10,
-            SOUND.feast)
-CastSticker("food",       stFood,  { 457285, 457283, 457302, 455960 }, 7,
-            SOUND.food)
+-- Сытная еда / обычная еда — по одному актуальному ID (Миша сверил в игре),
+-- иконка стикеров 1387652.
+CastSticker("feast",      stFeast, { 1303407 }, 10, SOUND.feast)
+CastSticker("food",       stFood,  { 1296432 }, 7,  SOUND.food)
 CastSticker("racechange", stRace,  { 384911 }, 7,
             SOUND.racechange)
 
@@ -1575,6 +1571,21 @@ registry.keystone = {
     end,
 }
 
+-- Всплывающие оповещения-тосты (добыча, достижения, «Задача предприятия
+-- выполнена» и т. п.). Это НЕ отдельные именованные окна: их все стопкой
+-- лепит к общему контейнеру AlertFrame и переанкоривает при каждом
+-- обновлении очереди (UpdateAnchors → SetPoint). Двигаем контейнер —
+-- переезжает вся стопка. Self-healing хук SetPoint в SetupBlizzardFrameMover
+-- возвращает AlertFrame на позицию пользователя после переанкоривания.
+local ApplyAlerts = SetupBlizzardFrameMover("AlertFrame", "alerts", "alerts")
+CreateMover("alerts", "Оповещения (тосты)", 130, 44, ApplyAlerts)
+registry.alerts = {
+    Deactivate = function()
+        ns.Print("позиция оповещений вернётся к стандартной после " ..
+            ns.C("FFFF00", "/reload") .. ".")
+    end,
+}
+
 -- =========================================================================
 -- Выключение галочки — мгновенно прячем дисплей
 -- =========================================================================
@@ -1591,6 +1602,7 @@ function ns.Tools.OnToggle(key, state)
         if key == "curr_moxie" then UpdateMoxie() end
         if key == "bonusroll" then ApplyBonusAll() end
         if key == "keystone" then ApplyKeystone() end
+        if key == "alerts" then ApplyAlerts() end
         return
     end
     local display = registry[key]

@@ -21,11 +21,18 @@ local TB = ns.TestBar
 local TRIGGER_SPELL    = 375576   -- «Божественный благовест» (каст → «Резонанс»)
 local RESONANCE_TALENT = 386738   -- талант «Божественный резонанс» (гейт загрузки)
 local BUFF_ICON_ID     = 386730   -- иконка баффа для полоски
-local PROT_SPEC        = 66       -- специализация «Защита» (паладин-танк)
+local ALLOWED_SPECS    = { [65] = true, [66] = true }  -- Свет (65) и Защита (66)
 local BUFF_DURATION    = 15       -- длительность «Резонанса», сек
 
 local TICKS     = { 66, 33 }               -- засечки (0% убрали — там полоса и так пропадает)
-local BAR_COLOR = { 0.957, 0.549, 0.729 }  -- розовый как в оригинальном WA
+
+-- Цвета полосы (выбор в настройках, выпадающим меню). key — в БД.
+local COLORS = {
+    { key = "pink",  name = "Оранжевый", rgb = { 0.957, 0.549, 0.729 } },  -- на кастбар-текстуре читается оранжевым
+    { key = "blue",  name = "Синий",     rgb = { 0.20,  0.60,  1.00  } },  -- ярче/цельнее
+    { key = "green", name = "Зелёный",   rgb = { 0.30,  0.80,  0.35  } },
+}
+TB.COLORS = COLORS   -- для дропдауна в Options
 
 local bar
 local previewUntil                          -- пока идёт предпросмотр — не прячем
@@ -35,22 +42,29 @@ local function Enabled() return ns.db and ns.db.features and ns.db.features.test
 local function BarW()    return (ns.db and ns.db.features and ns.db.features.testBarW) or 200 end
 local function BarH()    return (ns.db and ns.db.features and ns.db.features.testBarH) or 25 end
 local function IconOn()  return not (ns.db and ns.db.features and ns.db.features.testBarIcon == false) end
+local function CurrentColor()
+    local key = ns.db and ns.db.features and ns.db.features.testBarColor
+    for _, e in ipairs(COLORS) do if e.key == key then return e.rgb end end
+    return COLORS[1].rgb
+end
 
--- Грузим полосу только в танке (Защита) и при взятом таланте «Резонанс».
+-- Грузим полосу в спеках Свет/Защита и ТОЛЬКО при взятом таланте «Резонанс».
+-- ⚠ Проверяем именно талант 386738 (пассивка), а НЕ «Благовест» 375576 — он
+-- базовая способность и есть всегда, по нему талант не определить.
 local function ShouldLoad()
+    if not IsPlayerSpell then return false end
     local spec = GetSpecialization and GetSpecialization()
     if not spec then return false end
     local specID = GetSpecializationInfo and GetSpecializationInfo(spec)
-    if specID ~= PROT_SPEC then return false end
-    if IsPlayerSpell then
-        return IsPlayerSpell(RESONANCE_TALENT) or IsPlayerSpell(TRIGGER_SPELL) or false
-    end
-    return true
+    if not (specID and ALLOWED_SPECS[specID]) then return false end
+    return IsPlayerSpell(RESONANCE_TALENT) and true or false
 end
 
 -- Применить размеры/иконку/позиции засечек (ширина/высота из настроек).
 local function ApplySize()
     if not bar then return end
+    local c = CurrentColor()
+    if bar.SetStatusBarColor then bar:SetStatusBarColor(c[1], c[2], c[3], 1) end
     local w, h = BarW(), BarH()
     bar:SetSize(w, h)
     if bar.Icon then
@@ -74,7 +88,8 @@ local function BuildBar()
     bar:SetFrameStrata("HIGH")
     bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     bar:GetStatusBarTexture():SetAtlas("ui-castingbar-filling-standard")
-    bar:SetStatusBarColor(BAR_COLOR[1], BAR_COLOR[2], BAR_COLOR[3], 1)
+    local c0 = CurrentColor()
+    bar:SetStatusBarColor(c0[1], c0[2], c0[3], 1)
 
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints()

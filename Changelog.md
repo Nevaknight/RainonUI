@@ -1,6 +1,7 @@
 # RainonUI — Changelog
 
-## 1.5.4
+## 1.5.5
 
-* **New "Test" tab with a Divine Resonance tank bar.** A duration bar with tick marks that tracks the Divine Resonance talent for Protection Paladins — it appears when you cast Divine Toll and counts down. Adjustable width and height, an optional icon, and free positioning in Edit Mode. Off by default; enable it on the new Test tab.
-* **More reliable "change your key" reminder.** The end-of-run check now force-refreshes your keystone data before reading it, so your new key is picked up correctly. Added an optional diagnostic toggle next to the reminder to help verify detection.
+* **Reliable "change your key" reminder for timed runs.** After finishing a Mythic+, the run result (level and whether it was in time) is now read with a few retries instead of only at the instant the dungeon ends, when the data isn't ready yet. Timed keys are recognized correctly and the reminder fires as intended.
+* **Movable notification toasts.** A new "Notifications (toasts)" option in Comfort → General lets you reposition the whole stack of pop-up toasts (loot, achievements, completed enterprise tasks, and the rest) anywhere on screen via Edit Mode. Off by default.
+* **Food trackers updated for the current tier.** The feast and food stickers on the Tools tab now track the current spells and share a single icon.

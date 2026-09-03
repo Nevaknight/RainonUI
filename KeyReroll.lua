@@ -290,18 +290,33 @@ local function DiagVerdict()
             "\n(но модуль «Напоминание о смене ключа» ВЫКЛ — реального показа нет)")
     end
 end
-local function RunEndTest()
+-- Результат забега (уровень / в тайм). В момент `CHALLENGE_MODE_COMPLETED`
+-- `GetCompletionInfo()` ещё пустой (возвращает nil) — данные доезжают спустя
+-- доли секунды, поэтому читаем с ретраями (как и новый ключ) и кэшируем, как
+-- только `level` стал числом. Мультивозврат: mapID, level, time, onTime, …
+local function ReadCompletion()
     local level, onTime
-    pcall(function()
-        local _, lvl, _, ot = C_ChallengeMode.GetCompletionInfo()
-        level, onTime = lvl, ot
-    end)
+    if C_ChallengeMode and C_ChallengeMode.GetCompletionInfo then
+        local ok, _, lvl, _, ot = pcall(C_ChallengeMode.GetCompletionInfo)
+        if ok then level, onTime = lvl, ot end
+    end
+    return level, onTime
+end
+KR.ReadCompletion = ReadCompletion
+
+local function RunEndTest()
+    local level, onTime = ReadCompletion()
     diag = { level = level, onTime = onTime, keyRead = false }
     DiagRender()
     local tries = { 1.5, 3, 5, 8 }
     local finished = false
     local function attempt(isLast)
         if finished then return end
+        -- дочитываем результат забега, если на событии он был пустой
+        if type(diag.level) ~= "number" then
+            local l2, o2 = ReadCompletion()
+            if type(l2) == "number" then diag.level, diag.onTime = l2, o2 end
+        end
         local lvl, map
         if KR.ReadOwnedKeystone then lvl, map = KR.ReadOwnedKeystone() end
         if lvl and map then
@@ -358,11 +373,9 @@ ns.RegisterEvent("CHALLENGE_MODE_COMPLETED", function()
     -- [ТЕСТ] диагностика конвейера проверки ключа — до гейта keyReroll (галка теста отдельная).
     if EndTestOn() then RunEndTest() end
     if not (ns.db and ns.db.features and ns.db.features.keyReroll) then return end
-    local level, onTime
-    pcall(function()
-        local _, lvl, _, ot = C_ChallengeMode.GetCompletionInfo()
-        level, onTime = lvl, ot
-    end)
+    -- На самом событии GetCompletionInfo обычно ещё пуст (nil) — дочитаем в
+    -- CheckAfterRun по ретраям. Здесь берём то, что уже готово.
+    local level, onTime = ReadCompletion()
     completion = { level = level, onTime = onTime }
     WatchKey(true)       -- слушаем получение нового ключа (как BigWigs/LibKeystone)
     ScheduleKeyCheck()   -- + ретраи по таймеру
@@ -412,6 +425,12 @@ function KR.CheckAfterRun()
         return  -- ключ ещё не прочитался → ждём следующий ITEM_*-триггер / ретрай
     end
     WatchKey(false)  -- ключ есть — решение принимаем сейчас, слежку снимаем
+
+    -- Результат забега на событии мог не успеть прочитаться — дочитываем сейчас.
+    if not (completion and type(completion.level) == "number") then
+        local l2, o2 = ReadCompletion()
+        if type(l2) == "number" then completion = { level = l2, onTime = o2 } end
+    end
 
     -- Условие 1: пройдено В ТАЙМ и свой ключ в сумках ≤ уровня пройденного.
     if not (completion and completion.onTime) then return end

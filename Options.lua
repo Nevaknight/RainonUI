@@ -216,6 +216,8 @@ local FEATURES_OPTIONS = {
       desc = "Перемещает окна бонусной добычи: бросок, выигранный предмет и выигранное золото (BonusRollFrame, BonusRollLootWonFrame, BonusRollMoneyWonFrame) — один общий бокс. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
     { key = "keystone", name = "Окно эпохального ключа", tools = true,
       desc = "Перемещает окно «Вставьте эпохальный ключ» (ChallengesKeystoneFrame). Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
+    { key = "alerts", name = "Оповещения (тосты)", tools = true,
+      desc = "Перемещает всю стопку всплывающих оповещений (добыча, достижения, «Задача предприятия выполнена» и т. п.) — они все привязаны к общему контейнеру AlertFrame. Двигается и масштабируется в режиме редактирования; выключение вернёт стандартную позицию после /reload." },
     -- «Метка танка», «Воскрешение», «Изобилие» — кастомными секциями ниже.
 }
 
@@ -1175,8 +1177,8 @@ local function CreateOptionsWindow()
     local featuresPanel = BuildChecklist(container,
         FEATURES_OPTIONS,
         function(key)
-            -- Муверы окон (bonusroll/keystone) живут в ns.db.tools, остальное в features.
-            if key == "bonusroll" or key == "keystone" then return ns.db.tools[key] end
+            -- Муверы окон (bonusroll/keystone/alerts) живут в ns.db.tools, остальное в features.
+            if key == "bonusroll" or key == "keystone" or key == "alerts" then return ns.db.tools[key] end
             return ns.db.features[key]
         end,
         function(opt, state)
@@ -2069,7 +2071,7 @@ local function CreateOptionsWindow()
         local d = testPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         d:SetPoint("TOPLEFT", PAD, y); d:SetPoint("TOPRIGHT", -PAD, y); d:SetJustifyH("LEFT")
         d:SetText("Удобное отслеживание |cff71d5ff[Божественного резонанса]|r в виде полосы с засечками. " ..
-            "Работает ТОЛЬКО в специализации — защита.")
+            "Работает в специализациях Свет и Защита.")
         y = y - math.ceil(d:GetStringHeight()) - 10
 
         local cb = ns.MakeCheckButton(testPanel)
@@ -2096,6 +2098,33 @@ local function CreateOptionsWindow()
             if ns.TestBar and ns.TestBar.Refresh then ns.TestBar.Refresh() end
         end)
         y = y - 34
+
+        -- Цвет полосы — современное выпадающее меню (название в своём цвете).
+        local function ColorHex(rgb)
+            return string.format("%02x%02x%02x",
+                math.floor(rgb[1] * 255 + 0.5), math.floor(rgb[2] * 255 + 0.5), math.floor(rgb[3] * 255 + 0.5))
+        end
+        local colorLabel = testPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        colorLabel:SetPoint("TOPLEFT", PAD, y - 4)
+        colorLabel:SetText("Цвет полосы:")
+        local okDD, colorDD = pcall(CreateFrame, "DropdownButton", nil, testPanel, "WowStyle1DropdownTemplate")
+        if okDD and colorDD then
+            colorDD:SetPoint("LEFT", colorLabel, "RIGHT", 10, 0)
+            colorDD:SetWidth(160)
+            colorDD:SetupMenu(function(_dd, root)
+                for _, e in ipairs(ns.TestBar and ns.TestBar.COLORS or {}) do
+                    local key = e.key
+                    root:CreateRadio("|cff" .. ColorHex(e.rgb) .. e.name .. "|r",
+                        function() return (ns.db.features.testBarColor or "pink") == key end,
+                        function()
+                            ns.db.features.testBarColor = key
+                            if ns.TestBar and ns.TestBar.Refresh then ns.TestBar.Refresh() end
+                            return MenuResponse.Refresh
+                        end)
+                end
+            end)
+        end
+        y = y - 40
 
         local btn = CreateFrame("Button", nil, testPanel, "UIPanelButtonTemplate")
         btn:SetSize(220, 24)
