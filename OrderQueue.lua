@@ -32,8 +32,7 @@
 -- Журнал: план (наша цена) и что реально ушло из сумок (до/после крафта).
 -- Чёрный список предметов: если без них нужного качества не выйти — заказ серый.
 -- Пропуск кнопок Blizzard «Начать/Завершить заказ» + предупреждения о своих
--- реагентах — перенос из No Mats No Make (PublicOrdersReagentsColumn,
--- StartAndCraftButton.lua); в нашей очереди «взять» и «сдать» идут сами,
+-- реагентах — своя реализация (идея — No Mats No Make); в нашей очереди «взять» и «сдать» идут сами,
 -- нажатие нужно только на «Сделать» (крафт без нажатия игра не разрешает).
 -- Данные: SavedVariables RainonUIOrdersDB (settings, recipes — «мозги», log).
 -- Гейт: features.orderQueue (ВЫКЛ). Вкладка «Тест», /rsorders, тестер.
@@ -1905,6 +1904,7 @@ local function UpdateButtons()
         if k == view then b:LockHighlight() else b:UnlockHighlight() end
     end
     win.clear:SetShown(view == "log")
+    if win.macros then win.macros:SetShown(view ~= "log") end
     -- поле добавления (чёрный список / проки) стоит на месте строки «Сумка»
     local listView = (view == "black" or view == "procs")
     win.blackBox:SetShown(listView)
@@ -1964,7 +1964,7 @@ local function BuildWindow()
     -- (02.11) РАСКЛАДКА ОКНА (просьба Миши, по устройству ButtonFrameTemplate):
     --   серый верх (над чёрной рамкой Inset): кнопки в две строки, все одного размера, текст по центру —
     --     Очередь | Рецепты | Журнал | Чёрный список
-    --     Проки   | Обновить | Покупки | Очистить (только во вкладке «Журнал»)
+    --     Проки   | Обновить | Покупки | Макросы (во вкладке «Журнал» на её месте — «Очистить»)
     --   чёрная рамка (Inset): список заказов, с небольшим отступом от кнопок;
     --   серый низ, всё по одной левой границе: «Заказов: …» / «Прибыль не меньше» / «Сферы знаний» /
     --     «Сумка» (во вкладках «Чёрный список» и «Проки» на её месте — поле добавления) / кнопка «Дальше».
@@ -1997,6 +1997,19 @@ local function BuildWindow()
         GameTooltip:Show()
     end)
     win.shop:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (02.11) «Макросы» — создать/обновить макросы панели: Сумка, Травы, «Дальше» (во вкладке «Журнал» — «Очистить»)
+    win.macros = GridBtn(2, 4, "Макросы", function() OQ.CreateBagMacros() end)
+    win.macros:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Макросы для панели", 1, 1, 1)
+        GameTooltip:AddLine("Создаёт или обновляет общие макросы:", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("0.0_RainonUI — открыть сумку за заказы", 1, 1, 1)
+        GameTooltip:AddLine("0.1_RainonUI — открыть букет трав", 1, 1, 1)
+        GameTooltip:AddLine("0.2_RainonUI — нажать «Дальше»", 1, 1, 1)
+        GameTooltip:AddLine("Потом /macro → перетащи на панель.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    win.macros:SetScript("OnLeave", function() GameTooltip:Hide() end)
     win.clear = GridBtn(2, 4, "Очистить", function()
         if not IsShiftKeyDown() then ns.Print("Очередь заказов: зажмите Shift, чтобы очистить журнал."); return end
         DB().log = {}
@@ -2368,38 +2381,47 @@ local function HookProfessions()
         OQ.Hide()
     end)
 
-    -- Пропуск кнопок Blizzard у заказов покровителей (перенос из No Mats No Make).
-    -- Если No Mats No Make включён — он делает это сам, мы не дублируем.
-    local function SkipOn(key)
-        if not Enabled() or not DB().settings[key] then return false end
+    -- (02.11) Окно заказа Blizzard, заказы покровителей: «Начать» и «Завершить» нажимаем сами,
+    -- вопрос «положить свои реагенты?» подтверждаем сами. Своя реализация (идея — No Mats No Make):
+    -- правила в одной таблице, одна проверка. Наша очередь («Дальше», клавиша, макрос) от этого
+    -- не зависит — она сама зовёт ClaimOrder/FulfillOrder. Включён No Mats No Make — молчим (не жмём дважды).
+    local function AutoAllowed(key)
+        if not (Enabled() and DB().settings[key]) then return false end
         if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("PublicOrdersReagentsColumn") then return false end
         local page = ProfessionsFrame.OrdersPage
-        return page and page.orderType == Enum.CraftingOrderType.Npc
+        return page ~= nil and page.orderType == Enum.CraftingOrderType.Npc
     end
-    local OV = ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView
-    if OV and OV.CompleteOrderButton then
-        OV.CompleteOrderButton:HookScript("OnShow", function(self)
-            if not SkipOn("skipComplete") then return end
-            local c = C_CraftingOrders.GetClaimedOrder()
-            if c and fulfillSent[tostring(c.orderID)] then return end
-            if c then fulfillSent[tostring(c.orderID)] = true end
-            self:Click()
-        end)
-    end
-    if OV and OV.OrderInfo and OV.OrderInfo.StartOrderButton then
-        OV.OrderInfo.StartOrderButton:HookScript("OnShow", function(self)
-            if SkipOn("skipStart") then self:Click() end
-        end)
+    local view = ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView
+    local autoPress = {
+        { key = "skipStart",    button = view and view.OrderInfo and view.OrderInfo.StartOrderButton },
+        { key = "skipComplete", button = view and view.CompleteOrderButton, onlyOnce = true },
+    }
+    for _, rule in ipairs(autoPress) do
+        if rule.button then
+            rule.button:HookScript("OnShow", function(btn)
+                if not AutoAllowed(rule.key) then return end
+                if rule.onlyOnce then   -- «сдать» один раз на заказ (общая защита с нашей очередью)
+                    local claimed = C_CraftingOrders.GetClaimedOrder()
+                    local id = claimed and tostring(claimed.orderID)
+                    if id then
+                        if fulfillSent[id] then return end
+                        fulfillSent[id] = true
+                    end
+                end
+                btn:Click()
+            end)
+        end
     end
     if StaticPopup_ShowCustomGenericConfirmation then
-        hooksecurefunc("StaticPopup_ShowCustomGenericConfirmation", function(data)
-            if not SkipOn("skipOwnReagent") then return end
-            if issecrettable and issecrettable(data) then return end
-            if type(data) ~= "table" or IsSecret(data.text) then return end
-            if data.text ~= CRAFTING_ORDERS_OWN_REAGENTS_CONFIRMATION then return end
-            if data.callback then
-                data.callback()
-                if StaticPopup1 then StaticPopup1:Hide() end
+        hooksecurefunc("StaticPopup_ShowCustomGenericConfirmation", function(info)
+            if type(info) ~= "table" or not AutoAllowed("skipOwnReagent") then return end
+            if issecrettable and issecrettable(info) then return end
+            if IsSecret(info.text) or info.text ~= CRAFTING_ORDERS_OWN_REAGENTS_CONFIRMATION then return end
+            if type(info.callback) ~= "function" then return end
+            info.callback()
+            if StaticPopup_Hide then pcall(StaticPopup_Hide, "GENERIC_CONFIRMATION") end
+            if StaticPopup1 and StaticPopup1:IsShown() and StaticPopup1.which == "GENERIC_CONFIRMATION" then
+                StaticPopup1:Hide()
             end
         end)
     end
@@ -2418,6 +2440,7 @@ do
 local PROC_MAX = 5000    -- журнал проков: один крафт = одна короткая запись
 local procCast
 local costCache = {}     -- [предмет] = цена реагентов ОДНОГО крафта (для «Создать всё»: дальше крафты без журнала)
+local txCost             -- (02.11) цена реагентов из окна рецепта в момент последнего нажатия «Создать»
 -- (02.11) Цена реагентов одного крафта по текущему журналу крафта: что положили (план / amount) +
 -- простые обязательные реагенты схемы, которые игра кладёт сама. Цены — Auctionator сейчас.
 local function CraftCost(en)
@@ -2443,6 +2466,50 @@ local function CraftCost(en)
     end
     return math.floor(per + 0.5)
 end
+-- (02.11) ФАКТИЧЕСКАЯ цена реагентов одного крафта — то, что лежит в окне рецепта Blizzard в момент
+-- нажатия «Создать» (все слоты: обычные, с качеством, завершающие). Окно держит раскладку на ОДИН
+-- крафт, «Создать всё» повторяет её. Раньше брали журнал ручного крафта — туда игра передаёт не все
+-- реагенты (у «Зелья безрассудства» попадал только Индикатор → ~0,9з за крафт вместо реальной цены).
+-- Реагент без цены на аукционе (Индикатор и т.п.) — считаем 0 и пишем, сколько таких (np).
+function OQ.CaptureCraftCost(recipeID)
+    txCost = nil
+    local form = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+    local tr = form and form:IsVisible() and form.GetTransaction and form:GetTransaction()
+    if not (tr and tr.GetAllocations and tr.GetRecipeID) then return end
+    local rid = Num(tr:GetRecipeID())
+    if not rid or rid ~= Num(recipeID) then return end
+    local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, rid, false)
+    if not (ok and type(sch) == "table") then return end
+    local sum, np, any = 0, 0, false
+    for _, sl in ipairs(sch.reagentSlotSchematics or {}) do
+        local okA, allocs = pcall(tr.GetAllocations, tr, sl.slotIndex)
+        if okA and allocs and allocs.Enumerate then
+            for _, a in allocs:Enumerate() do
+                local r = a.GetReagent and a:GetReagent()
+                local id = r and Num(r.itemID)
+                local q = Num(a.GetQuantity and a:GetQuantity()) or 0
+                if id and q > 0 then
+                    any = true
+                    local pr = Price(id)
+                    if pr then sum = sum + pr * q else np = np + 1 end
+                end
+            end
+        end
+    end
+    if any then txCost = { recipe = rid, cost = math.floor(sum + 0.5), np = np } end
+end
+-- Что вернула находчивость в этом событии — по цене аукциона (вычитаем из реагентов крафта).
+local function ReturnedValue(data)
+    local rr = data.resourcesReturned
+    if not rr or IsSecret(rr) then return 0 end
+    local v = 0
+    for _, x in ipairs(rr) do
+        local id = x.itemID and Num(x.itemID)
+        local pr = id and Price(id)
+        if pr then v = v + pr * (Num(x.quantity) or 1) end
+    end
+    return v
+end
 CountProc = function(data)
     if type(data) ~= "table" or IsSecret(data.itemID) then return end
     local d = DB()
@@ -2454,6 +2521,7 @@ CountProc = function(data)
     if pc and pc.id == id and ((op and pc.op == op) or now - pc.at < 0.25) then
         pc.rec.n = pc.rec.n + n
         pc.agg.n = pc.agg.n + n
+        if pc.rec.c then pc.rec.c = math.max(0, pc.rec.c - ReturnedValue(data)) end
         if pc.rec.n > (pc.agg.best or 0) then pc.agg.best = pc.rec.n end
         pc.at = now
         return
@@ -2466,9 +2534,16 @@ CountProc = function(data)
     if m > 0 then a.p, a.x = a.p + 1, a.x + m end
     if n > (a.best or 0) then a.best = n end
     -- (02.11) цена реагентов крафта и цена штуки — для «сколько золота дал крафт» в дашборде
-    local cost = current and current.log and CraftCost(current.log)
-    if cost then costCache[id] = cost else cost = costCache[id] end
-    local rec = { t = time(), w = who, i = id, n = n, m = m, c = cost, v = Price(id) }
+    -- Заказ — наши реагенты по журналу заказа (реагенты заказчика не наши); свой крафт — то, что
+    -- лежало в окне рецепта при нажатии «Создать» (OQ.CaptureCraftCost); иначе — прошлый крафт того же предмета.
+    local cost, np
+    local cl = current and current.log
+    if cl and cl.orderID then cost = CraftCost(cl)
+    elseif txCost then cost, np = txCost.cost, txCost.np end
+    if cost then costCache[id] = { cost, np } elseif costCache[id] then cost, np = costCache[id][1], costCache[id][2] end
+    if cost then cost = math.max(0, cost - ReturnedValue(data)) end
+    local rec = { t = time(), w = who, i = id, n = n, m = m, c = cost, v = Price(id), cv = cost and 2 or nil,
+                  np = (np and np > 0) and np or nil }
     local log = d.procLog
     log[#log + 1] = rec
     while #log > PROC_MAX do table.remove(log, 1) end
@@ -2707,6 +2782,7 @@ end)
 -- Ручные крафты (для «Запоминать мои крафты»). Чужой код не трогаем — только слушаем.
 if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe and hooksecurefunc then
     hooksecurefunc(C_TradeSkillUI, "CraftRecipe", function(...)
+        pcall(OQ.CaptureCraftCost, (...))   -- (02.11) цена реагентов для «Проки и золото»
         local ok, err = pcall(OnManualCraft, ...)
         if not ok and ns.debug then print("|cFFFF3333RainonUI OrderQueue:|r", err) end
     end)
@@ -2984,6 +3060,7 @@ end
 local BAG_MACROS = {
     { name = "0.0_RainonUI", body = "/use item:246585" },                      -- Сумка (Оплата Консорциума)
     { name = "0.1_RainonUI", body = "/use item:245650\n/use item:245651" },    -- Травы: сначала кач.1, потом кач.2
+    { name = "0.2_RainonUI", body = "/rsorders next" },                        -- (02.11) «Дальше» в очереди заказов
 }
 function OQ.CreateBagMacros()
     if InCombatLockdown() then ns.Print("нельзя создавать макросы в бою."); return end
@@ -2998,7 +3075,7 @@ function OQ.CreateBagMacros()
             if pcall(CreateMacro, mac.name, 134400, mac.body, false) then created = created + 1 else failed = failed + 1 end
         end
     end
-    ns.Print(("макросы сумок: создано %d, обновлено %d%s. 0.0_RainonUI — Сумка, 0.1_RainonUI — Травы (" ..
+    ns.Print(("макросы: создано %d, обновлено %d%s. 0.0_RainonUI — Сумка, 0.1_RainonUI — Травы, 0.2_RainonUI — «Дальше» (" ..
         ns.C("FFFF00", "/macro") .. ", перетащи на панель)."):format(created, updated,
         failed > 0 and (", не удалось " .. failed .. " — нет места в общих макросах") or ""))
 end

@@ -2,11 +2,11 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.7.0
+## Version: 1.7.1
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB, RainonUIOrdersDB
 ## OptionalDeps: MythicDungeonTools
-## X-Credits: LibEditMode © Adrian L Lange (p3lim); order-queue logic adapted from CraftSim © Florian Schneider (MIT) and No Mats No Make © Teelo (PublicOrdersReagentsColumn)
+## X-Credits: LibEditMode © Adrian L Lange (p3lim); order-queue logic adapted from CraftSim © Florian Schneider (MIT); patron order button skipping idea from No Mats No Make by Teelo
 
 # Библиотеки (внешние; CurseForge подтягивает их из .pkgmeta при сборке,
 # локально положи официальные библиотеки в папку Libs\)
