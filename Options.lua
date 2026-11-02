@@ -1112,6 +1112,31 @@ local function CreateOptionsWindow()
             "Плашка «Предметы профессии» перестаёт двигаться мышью; у закреплённой" ..
             " плашки нет фона и заголовка — остаётся только содержимое. Переставить: снять галку," ..
             " перетащить плашку, поставить галку снова.", RefreshPanels)
+        -- (02.11) Главная галка очереди заказов — здесь, над «Окна сами» (раньше пряталась во вкладке «Тест»).
+        -- По умолчанию ВЫКЛ (features.orderQueue = false), поэтому не ProfFeatureCB (у него «нет записи = вкл.»).
+        do
+            local cb = ns.MakeCheckButton(profPanel)
+            cb:SetSize(24, 24)
+            cb:SetPoint("TOPLEFT", 10, y)
+            cb:SetChecked(ns.db.features.orderQueue and true or false)
+            cb:SetScript("OnClick", function(self)
+                ns.db.features.orderQueue = self:GetChecked() and true or false
+                if ns.OrderQueue and ns.OrderQueue.Refresh then ns.OrderQueue.Refresh() end
+            end)
+            cb:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Очередь заказов (тест)", 1, 1, 1)
+                GameTooltip:AddLine("Окно справа от окна профессии: заказы покровителей и кнопка «Дальше» — взять, сделать" ..
+                    " и сдать по очереди. Цены — из Auctionator. Выключено — окно само не открывается и кнопки" ..
+                    " заказа Blizzard не пропускаются.", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            l:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+            l:SetText("Очередь заказов (тест)")
+            y = y - 28
+        end
         ProfFeatureCB("oqAutoOpen", "Окна сами: «Клиент» — очередь заказов, крафт — «Знания и заряды»",
             "Открыл вкладку заказов «Клиент» — справа открывается очередь заказов, окно «Знания и заряды»" ..
             " прячется. Вернулся к крафту — очередь закрывается, «Знания и заряды» возвращается" ..
@@ -2254,17 +2279,11 @@ local function CreateOptionsWindow()
             "(нажатие — только «Сделать», взять и сдать идут сами). Без CraftSim; цены — из Auctionator.")
         y = y - math.ceil(od:GetStringHeight()) - 10
 
-        local ocb = ns.MakeCheckButton(testPanel)
-        ocb:SetSize(26, 26)
-        ocb:SetPoint("TOPLEFT", PAD, y)
-        ocb:SetChecked(ns.db.features.orderQueue and true or false)
-        ocb.Text:SetText("ВКЛ очередь заказов")
-        ocb.Text:SetFontObject("GameFontHighlight")
-        ocb:SetScript("OnClick", function(self)
-            ns.db.features.orderQueue = self:GetChecked() and true or false
-            if ns.OrderQueue and ns.OrderQueue.Refresh then ns.OrderQueue.Refresh() end
-        end)
-        y = y - 34
+        -- (02.11) галка «включить» перенесена во вкладку «Профессии» (над «Окна сами»)
+        local onote = testPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+        onote:SetPoint("TOPLEFT", PAD, y)
+        onote:SetText("Включается галкой «Очередь заказов (тест)» во вкладке «Профессии».")
+        y = y - 24
 
         -- Пропуск кнопок заказа (как в No Mats No Make). Хранятся в RainonUIOrdersDB.settings.
         local function OQSet() RainonUIOrdersDB = RainonUIOrdersDB or {}; RainonUIOrdersDB.settings = RainonUIOrdersDB.settings or {}; return RainonUIOrdersDB.settings end

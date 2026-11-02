@@ -1085,10 +1085,14 @@ end
 -- профессии в окне «Знания». Номера заданий — из Myu's Knowledge Points Tracker.
 --   * «Кружащаяся чародейская сущность» (267654) — 5 в неделю, флаги 95048–95052;
 --   * «Насыщенный маной осколок» (267655) — 1 в неделю после 5 сущностей, флаг 95053;
---   * «Мерцающий порошок» (267653) — догоняющий, лимит по валюте 3059 (сколько ещё можно).
+--   * «Мерцающий порошок» (267653) — догоняющий: сколько ещё можно = предел валюты догоняющих знаний
+--     наложения чар Midnight **3198** (линия 2909) минус набранное, минус ещё не подобранные недельные
+--     сокровища (Пепел Бурь Бездны 93532, Утерянный талассийский пергамент 93533 — по 2 очка), как у Myu's KPT.
+--     ⚠ (02.11) было 3059 — это валюта наложения чар The War Within: у всех персонажей одно и то же число.
 local ENCHANT_ESSENCE_QUESTS = { 95048, 95049, 95050, 95051, 95052 }
 local ENCHANT_SHARD_QUEST    = 95053
-local ENCHANT_DUST_CURRENCY  = 3059
+local ENCHANT_DUST_CURRENCY  = 3198
+local ENCHANT_DUST_TREASURES = { 93532, 93533 }   -- по 2 очка каждое, пока не подобраны
 
 local function EnchantWeekly()
     local essence = 0
@@ -1100,7 +1104,11 @@ local function EnchantWeekly()
         local ok, info = pcall(C_CurrencyInfo.GetCurrencyInfo, ENCHANT_DUST_CURRENCY)
         if ok and type(info) == "table" and (info.maxQuantity or 0) > 0 then
             local have = info.useTotalEarnedForMaxQty and info.totalEarned or info.quantity
-            dustLeft = math.max(0, (info.maxQuantity or 0) - (have or 0))
+            dustLeft = (info.maxQuantity or 0) - (have or 0)
+            for _, q in ipairs(ENCHANT_DUST_TREASURES) do
+                if not IsQuestDone(q) then dustLeft = dustLeft - 2 end
+            end
+            dustLeft = math.max(0, dustLeft)
         end
     end
     return { essence = essence, essenceMax = #ENCHANT_ESSENCE_QUESTS,

@@ -1,0 +1,6 @@
+<Bindings>
+	<!-- RainonUI (02.11.2026): клавиша для кнопки «Дальше» очереди заказов (OrderQueue.lua, OQ.PressNext). -->
+	<Binding name="RAINONUI_ORDER_NEXT" header="RAINONUI" category="ADDONS">
+		if RainonUI_OrderNext then RainonUI_OrderNext() end
+	</Binding>
+</Bindings>

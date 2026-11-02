@@ -53,7 +53,7 @@ local ROW_H    = 26
 local ROWS     = 14
 local ROW_MAX  = 40      -- (02.11) окно по высоте = окно профессии: строк создаём с запасом, видно сколько влезает
 local NAME_MAX = 20      -- (02.11) длина названия = «Энтропийный экстракт»; длиннее — сокращаем «…»
-local FONT_ADD = 0.5     -- (02.11) шрифт строк крупнее на 0,5 (просьба Миши)
+local FONT_ADD = 1.3     -- (02.11) шрифт строк крупнее: было +0,5, Миша попросил ещё +0,8
 local PAD      = 12
 local REAGENT_REQUIRED = 1     -- reagentType «обязательный» (как CraftSim CONST.REAGENT_TYPE.REQUIRED)
 local BIG      = 1e12          -- «цена неизвестна» при подборе
@@ -809,6 +809,7 @@ local function Evaluate(order, prof, noCount)
         name = (info and info.name) or b.name or ("Рецепт " .. tostring(recipeID)),
         icon = (info and info.icon) or b.icon,
         reward = (Num(order.tipAmount) or 0) - (Num(order.consortiumCut) or 0),
+        order = order,   -- (02.11) для меню ПКМ в нашем окне («почему не беру», чёрный список)
     }
     -- (02.11) в чёрном списке сам заказанный предмет (рецепт сложно получить и т.п.)
     do
@@ -819,7 +820,12 @@ local function Evaluate(order, prof, noCount)
         e.fatal = "Перековка — пока не поддерживаем"; ApplyRule(e); return e
     end
     if not (info and info.learned) then
-        e.fatal = "Рецепт не изучен"; ApplyRule(e)
+        e.fatal = "Рецепт не изучен"; e.notLearned = true
+        -- (02.11) прибыль по самым дешёвым реагентам (как No Mats No Make): видно, стоит ли учить рецепт
+        local okS, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+        local okN, nmP = pcall(NmnmProfit, order, okS and sch or nil)
+        e.nmnm = okN and nmP or nil
+        ApplyRule(e)
         if not noCount then pcall(Observe, order, e) end
         return e
     end
@@ -1231,6 +1237,15 @@ local function OnManualCraft(recipeID, amount, reagents, _, orderID, concentrati
     if IsSecret(recipeID) then return end
     -- Заказ из нашего списка (сделан в окне Blizzard) — пишем в журнал ВСЕГДА, с оплатой и наградами.
     local e = orderID and not IsSecret(orderID) and FindEntry(orderID)
+    -- (02.11) ⚠ КОРЕНЬ «зависаний»: крафт без предмета (Раскалывание сущности — это бафф) не присылает
+    -- «результат крафта», наш журнал держал «идёт крафт», и очередь показывала «Делаю…» до сторожа (10 с).
+    -- Пойман по следу: Zulrain 15:33 и Nevaknight 15:41 — кнопка раскалывания, сразу за ней «Взять».
+    -- Крафты, у которых в схеме нет предмета на выходе, не пишем и не запоминаем.
+    if not e then
+        local okS, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+        local out = okS and type(sch) == "table" and Num(sch.outputItemID)
+        if not out or out == 0 then return end
+    end
     local remember = DB().settings.remember
     if remember then RememberManual(recipeID, reagents, concentrating, orderID) end
     if not (remember or e) or current then return end
@@ -1485,6 +1500,10 @@ local function EntryTooltip(self)
     else
         GameTooltip:AddLine(ns.C("ff6060", e.reason or "Не проходит"), 1, 1, 1, true)
     end
+    if e.notLearned and e.nmnm then
+        GameTooltip:AddLine(("Если выучить: прибыль ~%s%s (оценка по самым дешёвым реагентам, без учёта нужного качества)."):format(
+            e.nmnm < 0 and "-" or "+", Gold(math.abs(e.nmnm))), 1, 0.82, 0, true)
+    end
     if e.minQ > 0 then GameTooltip:AddDoubleLine("Нужно качество", Q(e.minQ, e.recipeID), 1, 1, 1) end
     if e.expQ then GameTooltip:AddDoubleLine("Выйдет (по талантам)", Q(e.expQ, e.recipeID), 1, 1, 1) end
     if e.skill and e.diff then
@@ -1646,6 +1665,13 @@ local function NewRow(parent, i, listW)
     r.name:SetWordWrap(false)
 
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (02.11) ПКМ по заказу в НАШЕМ окне — «почему не беру» и чёрный список (в окно Blizzard больше не лезем)
+    r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    r:SetScript("OnClick", function(self, button)
+        local e = self.entry
+        if button ~= "RightButton" or not (e and e.order) or not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+        MenuUtil.CreateContextMenu(self, function(_, root) if OQ.OrderMenu then OQ.OrderMenu(root, e.order) end end)
+    end)
     return r
 end
 
@@ -1721,12 +1747,16 @@ local function FillRows()
                 elseif isClaimed then status = ns.C("ffd100", "Взят") end
                 if e.state ~= "wait" then nm = ns.C("808080", nm)
                 elseif e.black then nm = ns.C("ff6060", nm)   -- (02.11) чёрный список — название красным
+                elseif e.notLearned then nm = ns.C("ff6060", nm)   -- (02.11) не изучен — красным (и бледным)
                 elseif not e.ok then nm = ns.C("808080", nm)
                 elseif e.canCraft == false then nm = ns.C("ff9900", nm) end
                 r.name:SetText(nm)
                 local loss = ""
                 if e.black then
                     loss = ns.C("ff6060", "Чёрный список")
+                elseif e.notLearned and e.nmnm then
+                    -- (02.11) «~» — оценка по самым дешёвым реагентам (рецепта нет — точный подбор не посчитать)
+                    loss = (e.nmnm < 0) and ns.C("ff6060", "~-" .. Gold(-e.nmnm)) or ns.C("60ff60", "~+" .. Gold(e.nmnm))
                 elseif e.profit and (e.noPrice or 0) == 0 then
                     loss = (e.profit < 0) and ns.C("ff6060", "-" .. Gold(-e.profit)) or ns.C("60ff60", "+" .. Gold(e.profit))
                 elseif e.model then
@@ -1875,10 +1905,11 @@ local function UpdateButtons()
         if k == view then b:LockHighlight() else b:UnlockHighlight() end
     end
     win.clear:SetShown(view == "log")
-    win.blackBox:SetShown(view == "black" or view == "procs")
-    -- «Открыть сумку» стоит там же, где поле чёрного списка, — во вкладке «Чёрный список» прячем
-    if OQ.SyncBagButtons then OQ.SyncBagButtons() end
-    win.blackAdd:SetShown(view == "black" or view == "procs")
+    -- поле добавления (чёрный список / проки) стоит на месте строки «Сумка»
+    local listView = (view == "black" or view == "procs")
+    win.blackBox:SetShown(listView)
+    win.blackAdd:SetShown(listView)
+    if win.bagRow then win.bagRow:SetShown(not listView) end
 end
 
 -- Заказ взят (кем угодно: нашей кнопкой или в окне Blizzard). Работает и без окна очереди.
@@ -1920,37 +1951,80 @@ local function BuildWindow()
     win:SetFrameStrata("HIGH")
     win:SetToplevel(true)
     if ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(win) end
-    if win.SetTitle then win:SetTitle("Очередь заказов (тест)") end
+    -- (02.11) заголовок как у «Знания и заряды»; ButtonFrameTemplate сам ставит его по центру
+    if win.SetTitle then win:SetTitle("RainonUI — Очередь заказов") end
+    if win.PortraitContainer then win.PortraitContainer:Hide() end
+    -- (02.11) ESC закрывает окно (если открыто вместе с окном профессии — закроются оба, как у Blizzard)
+    table.insert(UISpecialFrames, "RainonUIOrderQueue")
     win:Hide()
 
     local listW = WIN_W - PAD * 2 - 8
     local y = -30
 
-    -- Вкладки-переключатели: Очередь / Рецепты / Журнал
-    win.tabs = {}
-    -- (02.11) пятая вкладка «Проки»; ширина у каждой своя — по длине подписи (текст не наезжает)
-    -- сумма 356 + 4 зазора по 4 = 372 ≤ WIN_W − 2·PAD = 376 («Чёрный список» было 91 — влезало)
-    local tabDefs = { { "queue", "Очередь", 70 }, { "recipes", "Рецепты", 70 }, { "log", "Журнал", 62 },
-                      { "black", "Чёрный список", 98 }, { "procs", "Проки", 56 } }
-    local tabX = PAD
-    for i, d in ipairs(tabDefs) do
+    -- (02.11) РАСКЛАДКА ОКНА (просьба Миши, по устройству ButtonFrameTemplate):
+    --   серый верх (над чёрной рамкой Inset): кнопки в две строки, все одного размера, текст по центру —
+    --     Очередь | Рецепты | Журнал | Чёрный список
+    --     Проки   | Обновить | Покупки | Очистить (только во вкладке «Журнал»)
+    --   чёрная рамка (Inset): список заказов, с небольшим отступом от кнопок;
+    --   серый низ, всё по одной левой границе: «Заказов: …» / «Прибыль не меньше» / «Сферы знаний» /
+    --     «Сумка» (во вкладках «Чёрный список» и «Проки» на её месте — поле добавления) / кнопка «Дальше».
+    local GRID_N, GRID_GAP, BTN_H = 4, 4, 22
+    local BTN_W = math.floor((WIN_W - PAD * 2 - GRID_GAP * (GRID_N - 1)) / GRID_N)   -- 400 → 91
+    local function GridBtn(row, col, text, onClick)
         local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-        b:SetSize(d[3], 22)
-        b:SetPoint("TOPLEFT", tabX, y)
-        tabX = tabX + d[3] + 4
-        b:SetText(d[2])
+        b:SetSize(BTN_W, BTN_H)
+        b:SetPoint("TOPLEFT", PAD + (col - 1) * (BTN_W + GRID_GAP), -28 - (row - 1) * (BTN_H + GRID_GAP))
+        b:SetText(text)
         if b.SetNormalFontObject then b:SetNormalFontObject("GameFontNormalSmall"); b:SetHighlightFontObject("GameFontHighlightSmall") end
-        b:SetScript("OnClick", function() view = d[1]; offset = 0; Refresh() end)
-        win.tabs[d[1]] = b
+        local fs = b:GetFontString()
+        if fs then fs:ClearAllPoints(); fs:SetPoint("CENTER", 0, 0); fs:SetJustifyH("CENTER") end
+        b:SetScript("OnClick", onClick)
+        return b
     end
-    y = y - 28
+    win.tabs = {}
+    local tabDefs = { { "queue", "Очередь", 1, 1 }, { "recipes", "Рецепты", 1, 2 }, { "log", "Журнал", 1, 3 },
+                      { "black", "Чёрный список", 1, 4 }, { "procs", "Проки", 2, 1 } }
+    for _, d in ipairs(tabDefs) do
+        win.tabs[d[1]] = GridBtn(d[3], d[4], d[2], function() view = d[1]; offset = 0; Refresh() end)
+    end
+    win.scan = GridBtn(2, 2, "Обновить", function() OQ.Scan() end)
+    win.shop = GridBtn(2, 3, "Покупки", function() OQ.MakeShoppingList() end)
+    win.shop:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Список покупок", 1, 1, 1)
+        GameTooltip:AddLine("Собирает реагенты, которых не хватает на заказы «к работе», и создаёт в Auctionator" ..
+            " список «RainonUI: заказы» (каждый раз заново). Открой аукцион → Auctionator → «Покупки».", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    win.shop:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    win.clear = GridBtn(2, 4, "Очистить", function()
+        if not IsShiftKeyDown() then ns.Print("Очередь заказов: зажмите Shift, чтобы очистить журнал."); return end
+        DB().log = {}
+        Refresh()
+    end)
+    win.clear:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Очистить журнал", 1, 1, 1)
+        GameTooltip:AddLine("С зажатым Shift.", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    win.clear:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- серый верх заканчивается под второй строкой кнопок (−28 − 22 − 4 − 22 = −76) → чёрная рамка с −80
+    local TOP_Y, BOTTOM_H = -80, 144   -- BOTTOM_H — высота серого низа (строки настроек + «Дальше»)
+    if win.Inset then
+        win.Inset:ClearAllPoints()
+        win.Inset:SetPoint("TOPLEFT", win, "TOPLEFT", PAD - 6, TOP_Y)
+        win.Inset:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -(PAD - 6), BOTTOM_H)
+    end
+    -- строки серого низа (снизу вверх): «Дальше» 10..42, сумка/поле ~50, сферы ~74, прибыль ~100, «Заказов» ~126
+    local LINE4, LINE3, LINE2, LINE1 = 50, 74, 110, 126
 
     local s = DB().settings
     -- (02.11) Строка «Оплата Консорциума»: сумка относится ко всем профессиям, поэтому она здесь.
     -- Иконка, средняя цена по замерам, сколько открыто, цена последнего открытия.
     -- Без переноса: если не влезает — короче подпись (правило CODE_CORE: текст не наезжает).
     local bagRow = CreateFrame("Frame", nil, win)
-    bagRow:SetPoint("TOPLEFT", PAD + 2, y - 2)
+    bagRow:SetPoint("BOTTOMLEFT", PAD, LINE4 + 1)
     bagRow:SetSize(WIN_W - PAD * 2 - 4, 18)
     bagRow.icon = bagRow:CreateTexture(nil, "ARTWORK")
     bagRow.icon:SetSize(16, 16)
@@ -1972,7 +2046,6 @@ local function BuildWindow()
     -- Порог убытка
     local box = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
     box:SetSize(54, 20)
-    box:SetPoint("TOPRIGHT", -PAD - 22, y - 2)
     box:SetAutoFocus(false)
     box:SetMaxLetters(6)   -- (02.11) не SetNumeric: нужен знак минус
     box:SetText(tostring(math.floor((s.minProfit or 0) / GOLD + 0.5)))
@@ -1991,8 +2064,9 @@ local function BuildWindow()
     box:SetScript("OnEditFocusLost", commit)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local boxL = win:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    boxL:SetPoint("RIGHT", box, "LEFT", -8, 0)
+    boxL:SetPoint("LEFT", win, "BOTTOMLEFT", PAD, LINE2)
     boxL:SetText("Прибыль не меньше:")
+    box:SetPoint("LEFT", boxL, "RIGHT", 12, 0)   -- у поля ввода рамка слева шире на ~5px
     box:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Прибыль не меньше")
@@ -2009,7 +2083,7 @@ local function BuildWindow()
     -- Сферы знаний (02.11): общий выключатель + цена Отблеска и Света (в золоте).
     local kp = ns.MakeCheckButton(win)
     kp:SetSize(24, 24)
-    kp:SetPoint("TOPLEFT", PAD, y)
+    kp:SetPoint("BOTTOMLEFT", PAD - 4, LINE3)   -- у галки прозрачный край ~4px: сам квадрат — по левой границе
     kp.Text:SetText("Сферы знаний")
     kp.Text:SetFontObject("GameFontHighlightSmall")
     kp:SetChecked(s.kpOn)
@@ -2025,10 +2099,9 @@ local function BuildWindow()
         GameTooltip:Show()
     end)
     kp:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    local function KPBox(key, label, rightOf)
+    local function KPBox(key, label, after)
         local b = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
         b:SetSize(44, 20)
-        if rightOf then b:SetPoint("RIGHT", rightOf, "LEFT", -12, 0) else b:SetPoint("TOPRIGHT", -PAD - 22, y - 2) end
         b:SetAutoFocus(false)
         b:SetNumeric(true)
         b:SetMaxLetters(5)
@@ -2047,20 +2120,21 @@ local function BuildWindow()
         g:SetPoint("LEFT", b, "RIGHT", 2, 0)
         g:SetText(GOLD_ICON)
         local l = win:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        l:SetPoint("RIGHT", b, "LEFT", -6, 0)
+        l:SetPoint("LEFT", after, "RIGHT", 14, 0)
         l:SetText(label)
-        return l
+        b:SetPoint("LEFT", l, "RIGHT", 10, 0)
+        return g
     end
-    local lightL = KPBox("kpLight", "Свет:")
-    KPBox("kpGlimmer", "Отблеск:", lightL)
+    local glimG = KPBox("kpGlimmer", "Отблеск:", kp.Text)
+    KPBox("kpLight", "Свет:", glimG)
     y = y - 26
 
     y = y - 6
 
     -- Список
     local list = CreateFrame("Frame", nil, win)
-    list:SetPoint("TOPLEFT", PAD + 4, y)
-    list:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -PAD - 4, 96)   -- (02.11) до строки статуса
+    list:SetPoint("TOPLEFT", PAD + 2, TOP_Y - 4)                       -- (02.11) внутри чёрной рамки, отступ 4
+    list:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -PAD - 2, BOTTOM_H + 4)
     list:SetWidth(listW)
     win.list = list
     list:EnableMouseWheel(true)
@@ -2077,8 +2151,9 @@ local function BuildWindow()
     win.empty:SetWordWrap(true)
 
     -- Низ: статус, «Обновить», «Дальше», «Очистить журнал»
-    win.next = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-    win.next:SetSize(WIN_W - PAD * 2 - 8, 32)
+    -- (02.11) имя у кнопки — для макроса /click RainonUIOrderQueueNext (нажатие клавиши/макроса = «живое» нажатие)
+    win.next = CreateFrame("Button", "RainonUIOrderQueueNext", win, "UIPanelButtonTemplate")
+    win.next:SetSize(WIN_W - PAD * 2, 32)
     win.next:SetPoint("BOTTOM", 0, 10)
     -- (02.11) раз в секунду, пока окно открыто, перепроверяем кнопку (для сторожа зависаний)
     local tick = 0
@@ -2098,24 +2173,6 @@ local function BuildWindow()
             fn()
             C_Timer.After(0.3, function() Refresh() end)
         end
-    end)
-
-    win.scan = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-    win.scan:SetSize(110, 22)
-    win.scan:SetPoint("BOTTOMLEFT", PAD + 4, 48)
-    win.scan:SetText("Обновить")
-    win.scan:SetScript("OnClick", function() OQ.Scan() end)
-    -- «Открыть сумку» справа от «Обновить» (secure-макрос; родитель UIParent, показ вместе с окном вне боя)
-    OQ.AttachBagButton(win, win.scan)
-
-    win.clear = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-    win.clear:SetSize(130, 22)
-    win.clear:SetPoint("BOTTOMRIGHT", -PAD - 4, 48)
-    win.clear:SetText("Очистить журнал")
-    win.clear:SetScript("OnClick", function()
-        if not IsShiftKeyDown() then ns.Print("Очередь заказов: зажмите Shift, чтобы очистить журнал."); return end
-        DB().log = {}
-        Refresh()
     end)
 
     -- Чёрный список: поле (ID / ссылка Shift+клик / перетащить предмет) + «Добавить»
@@ -2140,8 +2197,8 @@ local function BuildWindow()
         if kind == "item" and id then ClearCursor(); AddBlack(id) end
     end
     win.blackBox = CreateFrame("EditBox", nil, win, "InputBoxTemplate")
-    win.blackBox:SetSize(170, 20)
-    win.blackBox:SetPoint("BOTTOMRIGHT", -PAD - 96, 49)
+    win.blackBox:SetSize(BTN_W * 2 + GRID_GAP - 10, 20)
+    win.blackBox:SetPoint("BOTTOMLEFT", PAD + 6, LINE4)   -- рамка поля шире слева на ~5px
     win.blackBox:SetAutoFocus(false)
     win.blackBox:SetScript("OnEnterPressed", function(self) AddBlack(self:GetText()) end)
     win.blackBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -2158,8 +2215,8 @@ local function BuildWindow()
     end)
     win.blackBox:SetScript("OnLeave", function() GameTooltip:Hide() end)
     win.blackAdd = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-    win.blackAdd:SetSize(86, 22)
-    win.blackAdd:SetPoint("BOTTOMRIGHT", -PAD - 4, 48)
+    win.blackAdd:SetSize(BTN_W, BTN_H)
+    win.blackAdd:SetPoint("LEFT", win.blackBox, "RIGHT", GRID_GAP + 2, 0)
     win.blackAdd:SetText("Добавить")
     win.blackAdd:SetScript("OnClick", function() AddBlack(win.blackBox:GetText()) end)
     -- Shift+клик по предмету вставляет ссылку в наше поле, если оно в фокусе.
@@ -2172,9 +2229,10 @@ local function BuildWindow()
     if ChatFrameUtil and ChatFrameUtil.InsertLink then hooksecurefunc(ChatFrameUtil, "InsertLink", InsertLinkHook) end
 
     win.status = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    win.status:SetPoint("BOTTOMLEFT", win.scan, "TOPLEFT", 0, 6)
-    win.status:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -PAD, 76)
+    win.status:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", PAD, LINE1)
+    win.status:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -PAD, LINE1)
     win.status:SetJustifyH("LEFT")
+    win.status:SetWordWrap(false)
 
     win:SetScript("OnShow", function() Refresh() end)
     return win
@@ -2271,9 +2329,9 @@ local function HookProfessions()
         acc = acc + elapsed
         if acc < 0.2 then return end
         acc = 0
-        -- (02.11) авто-переключение окон работает и без галки «ВКЛ очередь заказов»
-        -- (настройка features.oqAutoOpen, по умолчанию вкл.)
-        local autoOn = Enabled() or not (ns.db and ns.db.features and ns.db.features.oqAutoOpen == false)
+        -- (02.11) «Окна сами» — только при включённой очереди (галка «Очередь заказов (тест)» во вкладке
+        -- «Профессии»; по умолчанию выкл.) и включённой «Окна сами» (features.oqAutoOpen, по умолчанию вкл.)
+        local autoOn = Enabled() and not (ns.db and ns.db.features and ns.db.features.oqAutoOpen == false)
         if not autoOn or InCombatLockdown() then return end
         local now = IsPatronTab()
         if now == inPatron then return end
@@ -2359,6 +2417,32 @@ local CountProc
 do
 local PROC_MAX = 5000    -- журнал проков: один крафт = одна короткая запись
 local procCast
+local costCache = {}     -- [предмет] = цена реагентов ОДНОГО крафта (для «Создать всё»: дальше крафты без журнала)
+-- (02.11) Цена реагентов одного крафта по текущему журналу крафта: что положили (план / amount) +
+-- простые обязательные реагенты схемы, которые игра кладёт сама. Цены — Auctionator сейчас.
+local function CraftCost(en)
+    if not (en and en.recipeID) then return nil end
+    local per, amount = 0, (Num(en.amount) or 1)
+    if amount < 1 then amount = 1 end
+    local have = {}
+    for rid, cnt in pairs(en.reagents or {}) do
+        have[rid] = true
+        local pr = (en.prices and en.prices[rid]) or Price(rid)
+        if not pr then return nil end
+        per = per + pr * cnt / amount
+    end
+    local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, en.recipeID, false)
+    for _, sl in ipairs((ok and type(sch) == "table" and sch.reagentSlotSchematics) or {}) do
+        local first = sl.reagents and sl.reagents[1]
+        if sl.required and sl.reagentType == REAGENT_REQUIRED and #sl.reagents == 1 and first and first.itemID
+           and not have[first.itemID] then
+            local pr = Price(first.itemID)
+            if not pr then return nil end
+            per = per + pr * (sl.quantityRequired or 0)
+        end
+    end
+    return math.floor(per + 0.5)
+end
 CountProc = function(data)
     if type(data) ~= "table" or IsSecret(data.itemID) then return end
     local d = DB()
@@ -2381,7 +2465,10 @@ CountProc = function(data)
     a.c, a.n, a.t = a.c + 1, a.n + n, time()
     if m > 0 then a.p, a.x = a.p + 1, a.x + m end
     if n > (a.best or 0) then a.best = n end
-    local rec = { t = time(), w = who, i = id, n = n, m = m }
+    -- (02.11) цена реагентов крафта и цена штуки — для «сколько золота дал крафт» в дашборде
+    local cost = current and current.log and CraftCost(current.log)
+    if cost then costCache[id] = cost else cost = costCache[id] end
+    local rec = { t = time(), w = who, i = id, n = n, m = m, c = cost, v = Price(id) }
     local log = d.procLog
     log[#log + 1] = rec
     while #log > PROC_MAX do table.remove(log, 1) end
@@ -2397,7 +2484,7 @@ local ev = CreateFrame("Frame")
 for _, name in ipairs({
     "CRAFTINGORDERS_CLAIMED_ORDER_UPDATED", "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED",
     "CRAFTINGORDERS_CLAIM_ORDER_RESPONSE", "CRAFTINGORDERS_FULFILL_ORDER_RESPONSE",
-    "TRADE_SKILL_ITEM_CRAFTED_RESULT", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_FAILED",
+    "TRADE_SKILL_ITEM_CRAFTED_RESULT", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_SUCCEEDED",
     "BAG_UPDATE_DELAYED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "UI_ERROR_MESSAGE",
     "TRADE_SKILL_SHOW", "TRADE_SKILL_CLOSE",
 }) do
@@ -2457,6 +2544,20 @@ ev:SetScript("OnEvent", function(_, event, ...)
                 -- Сумки обновляются чуть позже результата — считаем через 2с.
                 local mine = current
                 C_Timer.After(2, function() if current == mine then CloseCraft() end end)
+            end
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            -- (02.11) страховка: крафт прошёл, а «результата» нет (чары прямо на вещь и т.п.) —
+            -- через 3 с закрываем запись, чтобы очередь не висела на «Делаю…»
+            local unit, _, spellID = ...
+            local sid = Num(spellID)
+            if unit == "player" and current and sid and sid == current.log.recipeID then
+                local mine = current
+                C_Timer.After(3, function()
+                    if current == mine and not mine.log.resultItem then
+                        Trace("craft_noresult", { name = mine.log.name })
+                        CloseCraft()
+                    end
+                end)
             end
         elseif event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_FAILED" then
             local unit, _, spellID = ...
@@ -2823,96 +2924,8 @@ lockEv:SetScript("OnEvent", function(_, event, bag, slot)
     end)
 end)
 
--- Кнопки «Сумка» и «Травы» (secure-макросы) справа от «Обновить», на том же уровне.
--- Родитель UIParent (чтобы окно очереди не стало защищённым), слой DIALOG — поверх окна.
-local bagBtns = {}
-local bagAttached = false
-
--- Кнопки создаём сразу при входе (скрытыми): на них нажимают макросы /click с панели команд,
--- даже если окно очереди ещё не открывали.
-local function CreateBagButtons()
-    if #bagBtns > 0 or InCombatLockdown() then return end
-    for _, def in ipairs(BAG_BUTTONS) do
-        local btn = CreateFrame("Button", "RainonUIOpenBag" .. def.key, UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-        btn:SetSize(80, 22)
-        btn:SetFrameStrata("DIALOG")
-        btn:SetText(def.text)
-        btn:RegisterForClicks("AnyDown", "AnyUp")   -- мышь и /click … LeftButton 1
-        -- (02.11) Макросы 0.0_/0.1_RainonUI не открывали сумки (в замерах ни одного открытия
-        -- «button», только клики в сумках). Кнопка слушала и нажатие, и отпускание, а
-        -- срабатывать ей велела общая настройка игры ActionButtonUseKeyDown — /click шлёт
-        -- «нажатие», и при выключенной настройке клик молча пропускался. Теперь кнопка всегда
-        -- срабатывает на нажатие, независимо от настройки (атрибут useOnKeyDown).
-        btn:SetAttribute("useOnKeyDown", true)
-        -- (02.11) Было type="macro" + macrotext: нажатие доходило (PreClick писался), а /use
-        -- внутри не срабатывал. Теперь type="item": какой предмет открыть, ставим перед кликом.
-        btn:SetAttribute("type", "item")
-        btn:SetAttribute("item", "item:" .. def.ids[1])
-        btn:Hide()
-        btn:SetScript("PreClick", function(self)
-            local id = NextBag(def.ids)
-            if id and not InCombatLockdown() then self:SetAttribute("item", "item:" .. id) end
-            if id then BagOpened(id, "button") end
-        end)
-        btn:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText("Открыть: " .. def.text, 1, 1, 1)
-            GameTooltip:AddLine("Открывает и записывает, что выпало.", 0.8, 0.8, 0.8, true)
-            for _, id in ipairs(def.ids) do
-                local v, _, b = OQ.BagValue(id)
-                local okC, n = pcall(C_Item.GetItemCount, id)
-                GameTooltip:AddDoubleLine(ItemName(id) .. " (" .. ((okC and Num(n)) or 0) .. ")",
-                    v and (("~%s · открыто %d"):format(Gold(v), b.opened)) or "нет данных", 1, 1, 1, 0.7, 0.7, 0.7)
-            end
-            GameTooltip:Show()
-        end)
-        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        bagBtns[#bagBtns + 1] = btn
-    end
-end
-ns.RegisterEvent("PLAYER_LOGIN", function() pcall(CreateBagButtons) end)
-
--- Поставить кнопки справа от «Обновить» и показывать вместе с окном (вне боя).
-function OQ.AttachBagButton(host, anchor)
-    if bagAttached or InCombatLockdown() or not host then return end
-    CreateBagButtons()
-    bagAttached = true
-    local prev = anchor or host
-    for _, btn in ipairs(bagBtns) do
-        btn:ClearAllPoints()
-        btn:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-        prev = btn
-    end
-    -- (02.11) «Покупки» — список покупок в Auctionator из недостающих реагентов (как CraftSim).
-    -- Кнопка «Макросы» убрана отсюда: макросы сумок создаются во вкладке «Тест» настроек
-    -- («Создать макросы сумок») или командой /rsorders macro.
-    local mb = CreateFrame("Button", nil, host, "UIPanelButtonTemplate")
-    mb:SetSize(80, 22)
-    mb:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-    mb:SetFrameStrata("DIALOG")
-    mb:SetText("Покупки")
-    mb:SetScript("OnClick", function() OQ.MakeShoppingList() end)
-    mb:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Список покупок", 1, 1, 1)
-        GameTooltip:AddLine("Собирает реагенты, которых не хватает на заказы «к работе», и создаёт в Auctionator" ..
-            " список «RainonUI: заказы» (каждый раз заново). Открой аукцион → Auctionator → «Покупки».", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    mb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- Во вкладках «Журнал» и «Чёрный список» внизу свои кнопки — там прячем.
-    local function Sync()
-        if InCombatLockdown() then return end
-        for _, b in ipairs(bagBtns) do b:SetShown(host:IsShown() and view ~= "black" and view ~= "procs" and view ~= "log") end
-        mb:SetShown(view ~= "black" and view ~= "procs" and view ~= "log")
-    end
-    OQ.SyncBagButtons = Sync
-    host:HookScript("OnShow", Sync)
-    host:HookScript("OnHide", Sync)
-    bagEv:RegisterEvent("PLAYER_REGEN_ENABLED")
-    bagEv:HookScript("OnEvent", function(_, event) if event == "PLAYER_REGEN_ENABLED" then Sync() end end)
-    Sync()
-end
+-- (02.11) Кнопки «Сумка» и «Травы» убраны (просьба Миши): макросы 0.0_/0.1_RainonUI работают сами
+-- (/use + запись открытия по ITEM_LOCK_CHANGED). Старый код — Архив/BagButtons.lua.
 
 -- (02.11) Список покупок в Auctionator: чего не хватает на все заказы «к работе».
 -- Считаем общий расход по подбору всех подходящих заказов и вычитаем, что есть
@@ -3681,13 +3694,11 @@ local function SetSkip(order, reason)
     ns.Print("Заказ " .. tostring(o.name or order.spellID) .. ": отметка " .. txt .. ".")
 end
 
-if Menu and Menu.ModifyMenu then
-    Menu.ModifyMenu("MENU_PROFESSIONS_CRAFTER_ORDER", function(owner, rootDescription)
-        local order = owner and owner.option
+-- (02.11) Меню заказа — ПКМ по строке в окне очереди (раньше — в списке заказов Blizzard).
+function OQ.OrderMenu(rootDescription, order)
         if not (order and order.orderID) or IsSecret(order.orderID) then return end
         local o = SeenOf(order.orderID)
-        rootDescription:CreateDivider()
-        rootDescription:CreateTitle("RainonUI: почему не беру")
+        rootDescription:CreateTitle("Почему не беру")
         for _, r in ipairs(SKIP_REASONS) do
             rootDescription:CreateRadio(r.text,
                 function() local x = SeenOf(order.orderID); return x and x.skip == r.key end,
@@ -3699,7 +3710,8 @@ if Menu and Menu.ModifyMenu then
         -- (02.11) чёрный список: сам заказанный предмет (рецепт сложно получить и т.п.)
         local outID = Num(order.itemID)
         if outID then
-            rootDescription:CreateCheckbox("RainonUI: чёрный список (" .. ItemName(outID) .. ")",
+            rootDescription:CreateDivider()
+            rootDescription:CreateCheckbox("Чёрный список: " .. ItemName(outID),
                 function() return DB().black[outID] and true or false end,
                 function()
                     local d = DB()
@@ -3715,7 +3727,6 @@ if Menu and Menu.ModifyMenu then
                     if Refresh then Refresh() end
                 end)
         end
-    end)
 end
 
 -- -------------------------------------------------------------------------
@@ -3791,9 +3802,20 @@ function OQ.CheckReport()
     for k, v in pairs(flagKinds) do ns.Print("   • " .. k .. ": " .. v) end
 end
 
+-- (02.11) «Дальше» с клавиши или макроса — как «craftnext» у CraftSim: нажатие клавиши / макроса игра
+-- считает живым нажатием, поэтому взять / сделать / сдать разрешено. Клавиша — Настройки игры →
+-- Назначение клавиш → AddOns → RainonUI (Bindings.xml); макрос — /rsorders next или /click RainonUIOrderQueueNext.
+function OQ.PressNext()
+    if win and win:IsShown() and win.next and win.next:IsEnabled() and win.next.action then win.next:Click() end
+end
+RainonUI_OrderNext = OQ.PressNext
+BINDING_HEADER_RAINONUI = "RainonUI"
+BINDING_NAME_RAINONUI_ORDER_NEXT = "Очередь заказов: «Дальше»"
+
 SlashCmdList.RAINONORDERS = function(msg)
     msg = msg and msg:lower() or ""
-    if msg:find("diag") then OQ.Diag()
+    if msg:find("next") then OQ.PressNext()
+    elseif msg:find("diag") then OQ.Diag()
     elseif msg:find("check") then OQ.CheckReport()
     elseif msg:find("macro") then OQ.CreateBagMacros()
     elseif msg:find("bag") then OQ.BagReport()

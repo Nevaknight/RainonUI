@@ -1334,13 +1334,19 @@ local function CreateWindow()
 
     -- (02.11) Значок «i» в левом верхнем углу окна — инструкция (Knowledge.ToggleHelp).
     local helpBtn = CreateFrame("Button", nil, f)
-    helpBtn:SetSize(18, 18)
-    helpBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -3)
-    helpBtn:SetFrameLevel(f:GetFrameLevel() + 10)
-    local ht = helpBtn:CreateTexture(nil, "ARTWORK")
+    -- (02.11) «i» — ПОВЕРХ рамки окна, как крестик закрытия справа: уровень выше рамки (NineSlice),
+    -- заголовка и крестика. Путь текстуры — с двойными «\\» (одинарный «\C» Lua съедал → значка не было).
+    helpBtn:SetSize(22, 22)
+    helpBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 1, 0)
+    local top = f:GetFrameLevel()
+    for _, k in ipairs({ "NineSlice", "TitleContainer", "CloseButton" }) do
+        if f[k] and f[k].GetFrameLevel then top = math.max(top, f[k]:GetFrameLevel()) end
+    end
+    helpBtn:SetFrameLevel(top + 2)
+    local ht = helpBtn:CreateTexture(nil, "OVERLAY")
     ht:SetAllPoints()
-    ht:SetTexture("Interface\Common\help-i")
-    helpBtn:SetHighlightTexture("Interface\Common\help-i", "ADD")
+    ht:SetTexture("Interface\\Common\\help-i")
+    helpBtn:SetHighlightTexture("Interface\\Common\\help-i", "ADD")
     helpBtn:SetScript("OnClick", function() Knowledge.ToggleHelp() end)
     helpBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
