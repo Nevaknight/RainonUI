@@ -1992,8 +1992,9 @@ local function BuildWindow()
     win.shop:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Список покупок", 1, 1, 1)
-        GameTooltip:AddLine("Собирает реагенты, которых не хватает на заказы «к работе», и создаёт в Auctionator" ..
-            " список «RainonUI: заказы» (каждый раз заново). Открой аукцион → Auctionator → «Покупки».", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Добавляет в список Auctionator «!RainonUI — покупки» реагенты, которых не хватает на заказы" ..
+            " «к работе» этого стола. У другого стола — добавит его часть. Купил на аукционе — строка исчезает сама.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Shift + клик — очистить список.", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     win.shop:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3003,53 +3004,119 @@ end)
 -- (02.11) Кнопки «Сумка» и «Травы» убраны (просьба Миши): макросы 0.0_/0.1_RainonUI работают сами
 -- (/use + запись открытия по ITEM_LOCK_CHANGED). Старый код — Архив/BagButtons.lua.
 
--- (02.11) Список покупок в Auctionator: чего не хватает на все заказы «к работе».
--- Считаем общий расход по подбору всех подходящих заказов и вычитаем, что есть
--- (сумки + банк + банк отряда). Качество реагента передаём как tier (как CraftSim).
-local SHOP_LIST = "RainonUI: заказы"
+-- (02.11) Список покупок в Auctionator — КОПИЛКА на несколько столов (просьба Миши, по образцу CraftSim):
+-- у стола жмёшь «Покупки» → в список добавляется, чего не хватает на заказы «к работе» ЭТОЙ профессии
+-- (повторное нажатие у того же стола заменяет её часть, а не удваивает). У другого стола — добавляется его часть.
+-- На аукционе (и на почте — купленное не-товарами приходит письмом) следим, сколько предмета прибавилось
+-- в сумках: купил → строка уменьшается, купил всё → строка исчезает. Shift + «Покупки» — очистить список.
+-- Имя начинается с «!» — Auctionator сортирует списки по алфавиту, так наш стоит первым (CraftSim — «C…»).
+-- Хранение: RainonUIOrdersDB.shop = { [itemID] = { [профессия] = сколько купить } }.
+local SHOP_LIST = "!RainonUI — покупки"
+do
+local watchOpen, lastCnt, writeT = false, {}, nil
+local function ShopDB() local d = DB(); d.shop = d.shop or {}; return d.shop end
+local function ShopTotal(byProf) local t = 0; for _, n in pairs(byProf) do t = t + n end; return t end
+-- записать список в Auctionator по копилке (пустая копилка — пустой список)
+local function WriteList(silent)
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    if not (api and api.CreateShoppingList and api.ConvertToSearchString) then return false end
+    local terms, noName = {}, 0
+    for id, byProf in pairs(ShopDB()) do
+        local n = ShopTotal(byProf)
+        if n > 0 then
+            local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
+            if name and name ~= "" then
+                local term = { searchString = name, isExact = true, quantity = n }
+                local rq = C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo
+                local okQ, q = false, nil
+                if rq then okQ, q = pcall(rq, id) end
+                if okQ and Num(q) and Num(q) >= 1 then term.tier = Num(q) end
+                local ok, str = pcall(api.ConvertToSearchString, CALLER, term)
+                if ok and type(str) == "string" then terms[#terms + 1] = str end
+            else
+                noName = noName + 1
+            end
+        else
+            ShopDB()[id] = nil
+        end
+    end
+    local ok, err = pcall(api.CreateShoppingList, CALLER, SHOP_LIST, terms)
+    if not ok and not silent then ns.Print("Очередь заказов: Auctionator не создал список — " .. tostring(err)) end
+    return ok, #terms, noName
+end
 function OQ.MakeShoppingList()
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if not (api and api.CreateShoppingList and api.ConvertToSearchString) then
         ns.Print("Очередь заказов: Auctionator не включён — список покупок не создать.")
         return
     end
-    local need = {}
-    for _, e in ipairs(entries) do
-        if e.ok and e.state == "wait" and e.plan then
-            for id, n in pairs(e.plan) do need[id] = (need[id] or 0) + n end
-        end
-    end
-    local terms, noName, total = {}, 0, 0
-    for id, n in pairs(need) do
-        local miss = n - Count(id)
-        if miss > 0 then
-            local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
-            if name and name ~= "" then
-                local term = { searchString = name, isExact = true, quantity = miss }
-                local rq = C_TradeSkillUI.GetItemReagentQualityByItemInfo
-                local okQ, q = false, nil
-                if rq then okQ, q = pcall(rq, id) end
-                if okQ and Num(q) and Num(q) >= 1 then term.tier = Num(q) end
-                local ok, str = pcall(api.ConvertToSearchString, CALLER, term)
-                if ok and type(str) == "string" then terms[#terms + 1] = str; total = total + 1 end
-            else
-                noName = noName + 1
-            end
-        end
-    end
-    if #terms == 0 then
-        ns.Print("Очередь заказов: всех реагентов на заказы хватает" ..
-            (noName > 0 and (" (не загрузились названия: " .. noName .. " — нажми ещё раз)") or "") .. ".")
+    if IsShiftKeyDown() then
+        DB().shop = {}
+        WriteList()
+        ns.Print(("Очередь заказов: список покупок «%s» очищен."):format(SHOP_LIST))
         return
     end
-    local ok, err = pcall(api.CreateShoppingList, CALLER, SHOP_LIST, terms)
-    if ok then
-        ns.Print(("Очередь заказов: список покупок «%s» — %d реагентов%s. Аукцион → Auctionator → «Покупки»."):format(
-            SHOP_LIST, total, noName > 0 and (" (ещё " .. noName .. " без названия — нажми ещё раз)") or ""))
-        Trace("shopping", { n = total })
-    else
-        ns.Print("Очередь заказов: Auctionator не создал список — " .. tostring(err))
+    -- нужно по профессиям столов, у которых сейчас стоим (заказы «к работе» в очереди)
+    local need = {}   -- [prof][itemID] = сколько нужно
+    for _, e in ipairs(entries) do
+        if e.ok and e.state == "wait" and e.plan then
+            local pk = tostring(e.prof or "?")
+            need[pk] = need[pk] or {}
+            for id, n in pairs(e.plan) do need[pk][id] = (need[pk][id] or 0) + n end
+        end
     end
+    local shop = ShopDB()
+    local added = 0
+    for pk, items in pairs(need) do
+        for _, byProf in pairs(shop) do byProf[pk] = nil end          -- часть этого стола — заново
+        for id, n in pairs(items) do
+            local miss = n - Count(id)
+            if miss > 0 then shop[id] = shop[id] or {}; shop[id][pk] = miss; added = added + 1 end
+        end
+    end
+    local ok, nTerms, noName = WriteList()
+    if not ok then return end
+    if added == 0 then
+        ns.Print("Очередь заказов: на заказы этого стола всего хватает" ..
+            (nTerms > 0 and (" — в списке «" .. SHOP_LIST .. "» осталось " .. nTerms .. " от других столов") or "") .. ".")
+    else
+        ns.Print(("Очередь заказов: список «%s» — %d реагентов (этот стол: %d)%s. Аукцион → Auctionator → «Покупки». Shift+клик — очистить."):format(
+            SHOP_LIST, nTerms, added, noName > 0 and (" (ещё " .. noName .. " без названия — нажми ещё раз)") or ""))
+    end
+    Trace("shopping", { n = nTerms, added = added })
+end
+-- купленное: на аукционе / почте смотрим, сколько предмета из копилки прибавилось
+local function SnapCounts() lastCnt = {}; for id in pairs(ShopDB()) do lastCnt[id] = Count(id) end end
+local function OnBags()
+    if not watchOpen then return end
+    local shop, changed = ShopDB(), false
+    for id, byProf in pairs(shop) do
+        local now = Count(id)
+        local got = now - (lastCnt[id] or now)
+        lastCnt[id] = now
+        if got > 0 then
+            for pk, n in pairs(byProf) do        -- уменьшаем, начиная с любой профессии
+                local take = math.min(n, got)
+                byProf[pk], got = n - take, got - take
+                if byProf[pk] <= 0 then byProf[pk] = nil end
+                if got <= 0 then break end
+            end
+            if not next(byProf) then shop[id] = nil end
+            changed = true
+        end
+    end
+    if changed then
+        if writeT then writeT:Cancel() end
+        writeT = C_Timer.NewTimer(0.5, function() writeT = nil; WriteList(true) end)
+    end
+end
+for _, ev in ipairs({ "AUCTION_HOUSE_SHOW", "MAIL_SHOW" }) do
+    ns.RegisterEvent(ev, function() watchOpen = true; SnapCounts() end)
+end
+for _, ev in ipairs({ "AUCTION_HOUSE_CLOSED", "MAIL_CLOSED" }) do
+    ns.RegisterEvent(ev, function() OnBags(); watchOpen = false end)
+end
+ns.RegisterEvent("BAG_UPDATE_DELAYED", function() OnBags() end)
 end
 
 -- Макросы для панели команд: имена 0.0_/0.1_RainonUI — встают ПЕРЕД макросами паладина (1.x_RainonUI).
