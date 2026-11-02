@@ -895,20 +895,11 @@ ns.RegisterMessage("RAINON_REAPPLY", HookEditMode)
 -- перенесён в Архив (1.5.0). См. Архив/CombatTimer.lua.
 
 -- =========================================================================
--- ПРОФЕССИИ: напоминания о баффах крафта при открытом окне профессии.
--- Проверка строго по spellID:
---   * Haranir Phial of Ingenuity (1239755) — для всех профессий;
---   * Shattered Essence (1235733) — дополнительно для наложения чар.
--- Нет баффа → иконка с glow-эффектом. Позиции — через режим редактирования.
+-- ПРОФЕССИИ: баффы крафта (Харанирский флакон / Раскалывание сущности).
+-- С 02.11.2026 живут в плашке «Предметы профессии» (OrderQueue.lua, «Баффы крафта в плашке»):
+-- видны только на вкладке крафта, светятся без баффа, клик — как раньше. Иконки на экране и
+-- их места в редакторе убраны (старый код — Архив/ProfBuffIcons.lua). Тут — только переадресация.
 -- =========================================================================
-local PHIAL_SPELL   = 1239755
-local ESSENCE_SPELL = 1235733
--- Иконки берём у самих заклинаний (C_Spell.GetSpellTexture) — hardcode
--- IconID из тултипа оказался битым (зелёный квадрат). Фолбэки на случай,
--- если данные заклинания ещё не подгружены.
-local PHIAL_FALLBACK   = 134756  -- фиал
-local ESSENCE_FALLBACK = 7548988 -- расколотая сущность (этот ID рабочий)
-
 local function AddGlow(f)
     -- стандартный proc-глоу Blizzard + пульсация
     local glow = f:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -929,191 +920,9 @@ local function AddGlow(f)
     f:HookScript("OnHide", function() ag:Stop() end)
 end
 
-local phialIcon = CreateIconDisplay({ size = 48, x = -50, y = 120, icon = PHIAL_FALLBACK,
-                                      strata = "HIGH", timer = false })
-AddGlow(phialIcon)
-registry.prof_phial = phialIcon
-
-local essenceIcon = CreateIconDisplay({ size = 48, x = 50, y = 120, icon = ESSENCE_FALLBACK,
-                                        strata = "HIGH", timer = false })
-AddGlow(essenceIcon)
-registry.prof_essence = essenceIcon
-
--- -------------------------------------------------------------------------
--- Клик по иконкам. Иконки показываются только при открытом окне профессии
--- (вне боя), поэтому атрибуты secure-кнопки обновляем безопасно при показе.
---   * Флакон — secure-кнопка type="item": выпивает выбранный флакон.
---   * Раскалывание — обычная кнопка: CraftRecipe(1235731) с подстановкой
---     выбранной частицы (окно наложения чар уже открыто → крафт срабатывает
---     по аппаратному событию клика).
--- -------------------------------------------------------------------------
-local SHATTER_RECIPE = 1235731
-
-local phialBtn = CreateFrame("Button", nil, phialIcon, "SecureActionButtonTemplate")
-phialBtn:SetAllPoints()
-phialBtn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
-phialBtn:SetAttribute("type", "item")
-local phialHL = phialBtn:CreateTexture(nil, "HIGHLIGHT")
-phialHL:SetAllPoints(); phialHL:SetColorTexture(1, 1, 1, 0.2)
-phialBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Харанирский флакон", 1, 1, 1)
-    GameTooltip:AddLine("Клик — выпить выбранный флакон (выбор во вкладке «Профессии»).", 0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
-end)
-phialBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-local function UpdatePhialAttr()
-    if InCombatLockdown() then return end
-    local id = ns.db and ns.db.tools and ns.db.tools.phialQuality
-    if id then phialBtn:SetAttribute("item", "item:" .. id) end
-end
-
--- Раскалывание — secure-кнопка type="macro" с проверенным рабочим макросом:
---   /run C_TradeSkillUI.CraftRecipe(1235731)
---   /use item:<выбранная частица>
--- Макрос-текст обновляем вне боя (иконка видна только при открытом окне
--- профессии). Переключение рецепта в окне — часть механики, это ок.
-local essenceBtn = CreateFrame("Button", nil, essenceIcon, "SecureActionButtonTemplate")
-essenceBtn:SetAllPoints()
-essenceBtn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
-essenceBtn:SetAttribute("type", "macro")
-local essHL = essenceBtn:CreateTexture(nil, "HIGHLIGHT")
-essHL:SetAllPoints(); essHL:SetColorTexture(1, 1, 1, 0.2)
-essenceBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Раскалывание сущности", 1, 1, 1)
-    GameTooltip:AddLine("Клик — расколоть выбранную частицу (выбор во вкладке «Профессии»).", 0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
-end)
-essenceBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-local function UpdateShatterAttr()
-    if InCombatLockdown() then return end
-    local id = ns.db and ns.db.tools and ns.db.tools.shatterEssence
-    if id then
-        essenceBtn:SetAttribute("macrotext",
-            "/run C_TradeSkillUI.CraftRecipe(" .. SHATTER_RECIPE .. ")\n/use item:" .. id)
-    end
-end
-
-local function RefreshProfIcons()
-    local t = ns.GetSpellTexture(PHIAL_SPELL)
-    if t then phialIcon.Icon:SetTexture(t) end
-    t = ns.GetSpellTexture(ESSENCE_SPELL)
-    if t then essenceIcon.Icon:SetTexture(t) end
-end
-
-local function ApplyPhialPosition()
-    PositionDisplay(phialIcon, "prof_phial")
-end
-
-local function ApplyEssencePosition()
-    PositionDisplay(essenceIcon, "prof_essence")
-end
-
-CreateMover("prof_phial",   "Флакон",   56, 56, ApplyPhialPosition)
-CreateMover("prof_essence", "Сущность", 56, 56, ApplyEssencePosition)
-
-local profOpen = false
-local isEnchanting = false
-
-local function DetectEnchanting()
-    isEnchanting = false
-    pcall(function()
-        local info
-        if C_TradeSkillUI and C_TradeSkillUI.GetChildProfessionInfo then
-            info = C_TradeSkillUI.GetChildProfessionInfo()
-        end
-        if (not info or not info.profession)
-           and C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo then
-            info = C_TradeSkillUI.GetBaseProfessionInfo()
-        end
-        if info and info.profession and Enum and Enum.Profession then
-            isEnchanting = (info.profession == Enum.Profession.Enchanting)
-        end
-    end)
-end
-
--- Иконки баффов показываем ТОЛЬКО когда открыто РОДНОЕ окно профессии Midnight
--- (Blizzard ProfessionsFrame). Другие аддоны могут открывать данные профессии в
--- своих окнах/фоном — на них не реагируем.
-local function BlizzProfShown()
-    local pf = _G.ProfessionsFrame
-    return (pf and pf.IsShown and pf:IsShown()) and true or false
-end
-
 local function UpdateProfBuffs()
-    -- Иконки флакона/сущности — родители secure-кнопок (phialBtn/essenceBtn).
-    -- Show/Hide такого фрейма в бою заблокированы (ADDON_ACTION_BLOCKED), а
-    -- аура-вотчер срабатывает и в бою — поэтому в бою НИЧЕГО не трогаем и
-    -- откладываем пересинк до выхода из боя (PLAYER_REGEN_ENABLED ниже).
-    -- Окно профессии в бою всё равно не открыть, так что мы ничего не теряем.
-    if InCombatLockdown() then return end
-    if not profOpen or not BlizzProfShown() or not ns.ProfEnabled() then
-        phialIcon:Deactivate()
-        essenceIcon:Deactivate()
-        return
-    end
-    RefreshProfIcons()
-    if enabled("prof_phial") and not ns.GetPlayerAura(PHIAL_SPELL) then
-        UpdatePhialAttr()
-        phialIcon:Activate(nil)
-    else
-        phialIcon:Deactivate()
-    end
-    if enabled("prof_essence") and isEnchanting
-       and not ns.GetPlayerAura(ESSENCE_SPELL) then
-        UpdateShatterAttr()
-        essenceIcon:Activate(nil)
-    else
-        essenceIcon:Deactivate()
-    end
+    if ns.OrderQueue and ns.OrderQueue.UpdateProfPanels then pcall(ns.OrderQueue.UpdateProfPanels) end
 end
-
-ns.RegisterEvent("TRADE_SKILL_SHOW", function()
-    profOpen = true
-    DetectEnchanting()
-    UpdateProfBuffs()
-    -- данные профессии могут доехать чуть позже открытия окна
-    C_Timer.After(0.5, function()
-        if profOpen then DetectEnchanting(); UpdateProfBuffs() end
-    end)
-end)
-
-ns.RegisterEvent("TRADE_SKILL_CLOSE", function()
-    profOpen = false
-    UpdateProfBuffs()
-end)
-
-ns.RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED", function()
-    if profOpen then DetectEnchanting(); UpdateProfBuffs() end
-end)
-
--- После боя пересинхронизируем иконки: в бою мы их не трогали (secure-родитель),
--- а окно профессии за это время наверняка закрылось — прячем аккуратно.
-ns.RegisterEvent("PLAYER_REGEN_ENABLED", function() UpdateProfBuffs() end)
-
--- Подстраховка: окно профессий может закрываться и без события
-local profFrameHooked = false
-local function HookProfessionsFrame()
-    if profFrameHooked then return end
-    local pf = _G.ProfessionsFrame
-    if not pf or not pf.HookScript then return end
-    profFrameHooked = true
-    pf:HookScript("OnShow", function()
-        profOpen = true
-        DetectEnchanting()
-        UpdateProfBuffs()
-    end)
-    pf:HookScript("OnHide", function()
-        profOpen = false
-        UpdateProfBuffs()
-    end)
-end
-ns.RegisterMessage("RAINON_REAPPLY", HookProfessionsFrame)
-
-WatchPlayerAuras(UpdateProfBuffs)
 
 ns.Tools = ns.Tools or {}
 ns.Tools.UpdateProfBuffs = UpdateProfBuffs
@@ -1169,7 +978,8 @@ end
 local WEEKLY_KNOWLEDGE = {
     [171] = { treatiseQuest = 95127, weekly = { 93690 } },  -- Алхимия
     [164] = { treatiseQuest = 95128, weekly = { 93691 } },  -- Кузнечное дело
-    [333] = { treatiseQuest = 95129, weekly = { 93697 } },  -- Наложение чар
+    [333] = { treatiseQuest = 95129,                        -- Наложение чар
+              weekly = { 93697, 93698, 93699 } },  -- 3 задания учителя (ротация; 02.11, сверено с Myu's KPT)
     [202] = { treatiseQuest = 95138, weekly = { 93692 } },  -- Инженерное дело
     [773] = { treatiseQuest = 95131, weekly = { 93693 } },  -- Начертание
     [755] = { treatiseQuest = 95133, weekly = { 93694 } },  -- Ювелирное дело
@@ -1271,6 +1081,32 @@ local function IsQuestDone(id)
     return false
 end
 
+-- Наложение чар (02.11): недельная добыча при распылении — для подсказки на иконке
+-- профессии в окне «Знания». Номера заданий — из Myu's Knowledge Points Tracker.
+--   * «Кружащаяся чародейская сущность» (267654) — 5 в неделю, флаги 95048–95052;
+--   * «Насыщенный маной осколок» (267655) — 1 в неделю после 5 сущностей, флаг 95053;
+--   * «Мерцающий порошок» (267653) — догоняющий, лимит по валюте 3059 (сколько ещё можно).
+local ENCHANT_ESSENCE_QUESTS = { 95048, 95049, 95050, 95051, 95052 }
+local ENCHANT_SHARD_QUEST    = 95053
+local ENCHANT_DUST_CURRENCY  = 3059
+
+local function EnchantWeekly()
+    local essence = 0
+    for _, q in ipairs(ENCHANT_ESSENCE_QUESTS) do
+        if IsQuestDone(q) then essence = essence + 1 end
+    end
+    local dustLeft
+    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+        local ok, info = pcall(C_CurrencyInfo.GetCurrencyInfo, ENCHANT_DUST_CURRENCY)
+        if ok and type(info) == "table" and (info.maxQuantity or 0) > 0 then
+            local have = info.useTotalEarnedForMaxQty and info.totalEarned or info.quantity
+            dustLeft = math.max(0, (info.maxQuantity or 0) - (have or 0))
+        end
+    end
+    return { essence = essence, essenceMax = #ENCHANT_ESSENCE_QUESTS,
+             shard = IsQuestDone(ENCHANT_SHARD_QUEST), dustLeft = dustLeft }
+end
+
 -- Список изученных игроком первичных профессий с недельным статусом:
 --   { { name = "Алхимия", weeklyDone = bool, treatiseDone = bool }, ... }
 -- Профессии без данных (кулинария, рыбалка, археология) не попадают.
@@ -1295,6 +1131,7 @@ function ns.Tools.GetWeeklyKnowledge()
                     weeklyDone = weeklyDone,
                     treatiseDone = IsQuestDone(data.treatiseQuest),
                     darkmoonDone = IsQuestDone(DARKMOON_QUEST[skillLine]),
+                    ench = (skillLine == 333) and EnchantWeekly() or nil,
                 }
             end
         end
@@ -1597,8 +1434,9 @@ function ns.Tools.OnToggle(key, state)
         if ns.Roster and ns.Roster.UpdateMinimap then ns.Roster.UpdateMinimap() end
         return
     end
+    -- (02.11) флакон / раскалывание — слоты плашки «Предметы профессии»: и вкл., и выкл. — пересчёт плашки
+    if key == "prof_phial" or key == "prof_essence" then UpdateProfBuffs(); return end
     if state then
-        if key == "prof_phial" or key == "prof_essence" then UpdateProfBuffs() end
         if key == "curr_moxie" then UpdateMoxie() end
         if key == "bonusroll" then ApplyBonusAll() end
         if key == "keystone" then ApplyKeystone() end
@@ -1753,7 +1591,9 @@ local OUR_SOUNDS = {
     { "RainonUI: Хватит соакать (Alice)", MYSOUND .. "RainonUI_Stop_soak.ogg" },
     { "RainonUI: Хил (Alice)", MYSOUND .. "RainonUI_Heal.ogg" },
     { "RainonUI: Щит (Alice)", MYSOUND .. "RainonUI_Shield.ogg" },
-    { "RainonUI: Перерыв", SOUND.breaktimer },
+    -- TODO (02.11): файла break.ogg нет в Media\Sounds — регистрация давала ошибку LSM.
+    -- Временно выключено. Вернуть строку, когда файл будет на месте:
+    -- { "RainonUI: Перерыв", SOUND.breaktimer },
     { "RainonUI: Тревога", 567397 },  -- Raid Warning
     { "RainonUI: Флаг",    569200 },  -- PVP Flag Taken
     { "RainonUI: Беги (HoodWolf)", 552035 },  -- игровой голос

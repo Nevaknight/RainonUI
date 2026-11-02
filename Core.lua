@@ -55,8 +55,6 @@ ns.defaults = {
         bonusroll = false, keystone = false, alerts = false,
     },
     positions = {
-        prof_phial   = { x = -50, y = 120,  scale = 1 },
-        prof_essence = { x = 50,  y = 120,  scale = 1 },
         curr_moxie   = { x = 0,   y = 0,    scale = 1 },
         readybar     = { x = 0,   y = -180, scale = 1, width = 220 },
         bonusroll    = { x = 0,   y = -240, scale = 1 },
@@ -81,6 +79,10 @@ ns.defaults = {
         -- Трактат: подпись в подсказке + пиксельное свечение (раздельно)
         treatiseTooltip = true,
         treatiseGlow = true,
+        -- Плашки у окна профессии (02.11): «Предметы профессии» и закрепление места
+        profItemsPanel = true,
+        profPanelsLock = false,
+        oqAutoOpen = true,      -- (02.11) вкладка «Клиент» — очередь заказов, вкладка крафта — «Знания и заряды»
         -- Звук при предложении воскрешения (окно «Воскреснуть»)
         resurrectSoundOn = false,   -- звук, когда ТЕБЯ воскрешают (окно «Воскреснуть»)
         resurrectSound = nil,       -- ИМЯ звука из LibSharedMedia (nil → дефолт)
@@ -122,6 +124,8 @@ ns.defaults = {
         testBarW = 200,       -- ширина полосы (px)
         testBarH = 25,        -- высота полосы (px)
         testBarColor = "pink",-- цвет полосы (ключ из TestBar.COLORS)
+        -- Вкладка «Тест»: «Очередь заказов» у окна профессии (OrderQueue.lua). ВЫКЛ.
+        orderQueue = false,
     },
     -- Настройки окна знаний/зарядов
     knowledge = {
@@ -136,6 +140,7 @@ ns.defaults = {
             prof1 = true, prof2 = true, abundant = true,
             weekly = true, treatise = true, darkmoon = true,
             herbs = true, wondrous = true,
+            kp = true,          -- «Сферы» (02.11): галка «нужны знания» для заказов
         },
     },
 }

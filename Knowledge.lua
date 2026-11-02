@@ -22,6 +22,7 @@ local ROW_H     = 22
 local HEADER_H  = 22
 local LEFT_PAD  = 12
 local MAX_ROWS  = 10   -- окно рассчитано на ~10 строк, дальше скролл
+local CHARS_MENU_MAX = 30 -- меню «Персонажи»: больше 30 имён — прокрутка
 
 -- Столбцы: key, заголовок, ширина, скрываемость, tip — подсказка на заголовке
 local COLUMNS = {
@@ -39,6 +40,8 @@ local COLUMNS = {
     { key = "treatise", title = "Трактат", width = 56,  toggle = true },
     { key = "darkmoon", title = "Ярмарка", width = 60,  toggle = true,
       tip = "Задание профессии на Ярмарке новолуния (раз в месяц, во время события)." },
+    { key = "kp",       title = "Сферы",   width = 50,  toggle = true,
+      tip = "Галка у профессии — этой профессии нужны знания: «Отблеск знания» и «Свет знания» в награде заказа считаются как деньги (цены — в окне «Очередь заказов»). У наложения чар сфер нет — там прочерк." },
     { key = "herbs",    title = "БТ",      width = 44,  toggle = true,
       tip = "Букет трав — заряды" },
     { key = "wondrous", title = "ЧС",      width = 46,  toggle = true,
@@ -134,6 +137,20 @@ local function LastWeeklyReset()
 end
 local function WeeklyStale(e)
     return weeklyResetBoundary ~= nil and (e.lastUpdate or 0) < weeklyResetBoundary
+end
+
+-- (02.11) Профессии персонажа, которые отслеживаем: без снятых в меню «Персонажи»
+-- (ns.db.roster[guid].ignoreProf[base] = true). Снятая профессия не показывается в строке.
+local function Profs(e)
+    local all = e and e.profs
+    if not all then return nil end
+    local ign = e.ignoreProf
+    if not ign or not next(ign) then return all end
+    local out = {}
+    for _, p in ipairs(all) do
+        if not (p.base and ign[p.base]) then out[#out + 1] = p end
+    end
+    return out
 end
 
 local VOIDLIGHT_MARL = 3316 -- Мракозарный мергель (варбанд-валюта)
@@ -248,6 +265,33 @@ local function ProfTooltip(self)
     else
         GameTooltip:AddLine("Концентрация: нет данных", 0.6, 0.6, 0.6)
     end
+    -- Наложение чар (02.11): недельное задание и добыча при распылении.
+    if p.base == 333 then
+        local stale = self.edata and WeeklyStale(self.edata)
+        local ok, no = { 0.4, 1, 0.4 }, { 1, 0.45, 0.45 }
+        local function Line(left, done, right)
+            local c = done and ok or no
+            GameTooltip:AddDoubleLine(left, right, 1, 1, 1, c[1], c[2], c[3])
+        end
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Знания за неделю:", 1, 0.82, 0)
+        local wq = p.weeklyDone and not stale
+        Line("Задание учителя", wq, wq and "выполнено" or "не выполнено")
+        local en = p.ench
+        if en then
+            local ess = stale and 0 or (en.essence or 0)
+            local emax = en.essenceMax or 5
+            Line("Кружащаяся чародейская сущность", ess >= emax, ("%d / %d"):format(ess, emax))
+            local sh = en.shard and not stale
+            Line("Насыщенный маной осколок", sh, sh and "получен" or (ess >= emax and "ещё нет" or "после 5 сущностей"))
+            if en.dustLeft then
+                Line("Мерцающий порошок — можно ещё", en.dustLeft == 0, tostring(en.dustLeft))
+            end
+            if stale then GameTooltip:AddLine("После сброса — зайди на персонажа, чтобы обновить.", 0.6, 0.6, 0.6, true) end
+        else
+            GameTooltip:AddLine("Добыча при распылении: нет данных (зайди на персонажа).", 0.6, 0.6, 0.6, true)
+        end
+    end
     GameTooltip:Show()
 end
 
@@ -282,11 +326,11 @@ local function HideTooltip() GameTooltip:Hide() end
 -- Учитывает недельный сброс (после сброса — «НЕ использован»).
 local function TreatiseTooltip(self)
     local e = self.tdata
-    if not (e and e.profs) then GameTooltip:Hide(); return end
+    if not (e and Profs(e)) then GameTooltip:Hide(); return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("Талассийский трактат", 1, 1, 1)
     local stale = WeeklyStale(e)
-    for _, p in ipairs(e.profs) do
+    for _, p in ipairs(Profs(e)) do
         local done = p.treatiseDone and not stale
         GameTooltip:AddDoubleLine(p.name or "?",
             done and "использован" or "НЕ использован",
@@ -315,8 +359,8 @@ end
 -- Максимальная оценка концентрации у персонажа (для сортировки).
 local function CharConc(e)
     local best = -1
-    if e.profs then
-        for _, p in ipairs(e.profs) do
+    if Profs(e) then
+        for _, p in ipairs(Profs(e)) do
             if p.conc then
                 local est = EstConc(p.conc)
                 if est > best then best = est end
@@ -392,6 +436,35 @@ local function AcquireRow(parent, i)
     r.herbsbtn:SetScript("OnLeave", HideTooltip)
     r.wondrousbtn:SetScript("OnEnter", ChargeTooltip)
     r.wondrousbtn:SetScript("OnLeave", HideTooltip)
+    -- Галки «Сферы» (02.11): по одной на КАЖДУЮ профессию персонажа (в порядке иконок).
+    -- ns.db.roster[guid].wantKP[base] = true — знания этой профессии нужны.
+    r.kpbtn, r.kpdash = {}, {}
+    for j = 1, 2 do
+        local b = ns.MakeCheckButton(r.frame)
+        b:SetSize(18, 18)
+        b:SetScript("OnClick", function(self)
+            local re = self.guid and ns.db.roster and ns.db.roster[self.guid]
+            if re and self.base then
+                if type(re.wantKP) ~= "table" then re.wantKP = {} end
+                re.wantKP[self.base] = self:GetChecked() and true or nil
+            end
+            if ns.OrderQueue and ns.OrderQueue.RescoreKP then pcall(ns.OrderQueue.RescoreKP) end
+        end)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Сферы знаний: " .. (self.pname or "профессия"))
+            GameTooltip:AddLine(self:GetChecked() and "Знания нужны: сферы этой профессии в награде заказа считаются как деньги."
+                or "Знания не нужны: сферы этой профессии не учитываются.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", HideTooltip)
+        r.kpbtn[j] = b
+        local d = r.frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        d:SetText("–")
+        r.kpdash[j] = d
+    end
+    r.abDash = r.frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.abDash:SetText("–")
     -- Прозрачная кнопка над столбцом «Трактат» — подсказка по каждой профессии.
     r.treatisebtn = CreateFrame("Button", nil, r.frame)
     r.treatisebtn:SetScript("OnEnter", TreatiseTooltip)
@@ -413,6 +486,11 @@ local function HideAllRegions(r)
     r.herbs:Hide(); r.wondrous:Hide()
     r.herbsbtn:Hide(); r.wondrousbtn:Hide()
     if r.treatisebtn then r.treatisebtn:Hide() end
+    for j = 1, 2 do
+        if r.kpbtn and r.kpbtn[j] then r.kpbtn[j]:Hide() end
+        if r.kpdash and r.kpdash[j] then r.kpdash[j]:Hide() end
+    end
+    if r.abDash then r.abDash:Hide() end
 end
 
 -- Заполнить одну ячейку. x — левый край столбца; всё по центру столбца
@@ -434,7 +512,8 @@ local function FillCell(r, col, x, e)
         end
     elseif col.key == "prof1" or col.key == "prof2" then
         local slot = (col.key == "prof1") and 1 or 2
-        local p = e.profs and e.profs[slot]
+        local pl = Profs(e)
+        local p = pl and pl[slot]
         if p and p.icon then
             local tex = r[col.key]
             tex:ClearAllPoints()
@@ -457,20 +536,28 @@ local function FillCell(r, col, x, e)
             -- Прозрачная кнопка для тултипа концентрации
             local btn = r[col.key .. "btn"]
             btn.pdata = p
+            btn.edata = e
             btn:ClearAllPoints()
             btn:SetPoint("LEFT", r.frame, "LEFT", x, 0)
             btn:SetSize(col.width, ROW_H)
             btn:Show()
         end
     elseif col.key == "abundant" then
-        r.abundant:ClearAllPoints()
-        r.abundant:SetPoint("CENTER", r.frame, "LEFT", center, 0)
-        local abDone = e.abundant and not WeeklyStale(e)
-        r.abundant:SetTexture(abDone and READY_TEX or NOTREADY_TEX)
-        r.abundant:Show()
+        if e.ignoreAbundant then
+            -- (02.11) изобилие у этого персонажа не отслеживаем (меню «Персонажи») — прочерк
+            r.abDash:ClearAllPoints()
+            r.abDash:SetPoint("CENTER", r.frame, "LEFT", center, 0)
+            r.abDash:Show()
+        else
+            r.abundant:ClearAllPoints()
+            r.abundant:SetPoint("CENTER", r.frame, "LEFT", center, 0)
+            local abDone = e.abundant and not WeeklyStale(e)
+            r.abundant:SetTexture(abDone and READY_TEX or NOTREADY_TEX)
+            r.abundant:Show()
+        end
     elseif col.key == "weekly" or col.key == "treatise" or col.key == "darkmoon" then
         local checks = r[col.key]
-        local profs = e.profs or {}
+        local profs = Profs(e) or {}
         local n = (profs[1] and 1 or 0) + (profs[2] and 1 or 0)
         -- Ярмарка — месячная (не недельная), поэтому недельный сброс к ней не применяем.
         local stale = (col.key ~= "darkmoon") and WeeklyStale(e) or false
@@ -499,6 +586,38 @@ local function FillCell(r, col, x, e)
             r.treatisebtn:SetPoint("LEFT", r.frame, "LEFT", x, 0)
             r.treatisebtn:SetSize(col.width, ROW_H)
             r.treatisebtn:Show()
+        end
+    elseif col.key == "kp" then
+        -- (02.11) старый формат (одна галка true) → по профессиям, где сферы есть
+        local kpProf = ns.OrderQueue and ns.OrderQueue.KP_PROF or {}
+        local kpBases = {}
+        for _, base in pairs(kpProf) do kpBases[base] = true end
+        if e.wantKP == true then
+            e.wantKP = {}
+            for _, p in ipairs(e.profs or {}) do if p.base and kpBases[p.base] then e.wantKP[p.base] = true end end
+        end
+        local profs = Profs(e) or {}
+        local n = (profs[1] and 1 or 0) + (profs[2] and 1 or 0)
+        local S, idx = 20, 0
+        for j = 1, 2 do
+            local p = profs[j]
+            if p then
+                idx = idx + 1
+                local cx = center + (idx - (n + 1) / 2) * S
+                if p.base and kpBases[p.base] then
+                    local b = r.kpbtn[j]
+                    b.guid, b.base, b.pname = e.guid, p.base, p.name
+                    b:ClearAllPoints()
+                    b:SetPoint("CENTER", r.frame, "LEFT", cx, 0)
+                    b:SetChecked(type(e.wantKP) == "table" and e.wantKP[p.base] and true or false)
+                    b:Show()
+                else
+                    local d = r.kpdash[j]   -- у этой профессии сфер нет (например, наложение чар)
+                    d:ClearAllPoints()
+                    d:SetPoint("CENTER", r.frame, "LEFT", cx, 0)
+                    d:Show()
+                end
+            end
         end
     elseif col.key == "herbs" or col.key == "wondrous" then
         local rid = (col.key == "herbs") and ns.Roster.HERBS_RECIPE
@@ -771,6 +890,12 @@ local function OpenCharsMenu(anchor)
             root:CreateButton("Нет персонажей")
             return
         end
+        -- (02.11) Больше 30 персонажей — меню уходило за экран и не листалось.
+        -- Показываем 30 строк, дальше полоса прокрутки (стандартная Blizzard,
+        -- справа). Высота пункта меню ~20px — так же считает сама Blizzard.
+        if #list > CHARS_MENU_MAX and root.SetScrollMode then
+            root:SetScrollMode(CHARS_MENU_MAX * 20)
+        end
         for _, e in ipairs(list) do
             local guid = e.guid
             local sub = root:CreateButton(ClassColorName(e))
@@ -785,6 +910,44 @@ local function OpenCharsMenu(anchor)
                     Knowledge:Render()
                     return MenuResponse and MenuResponse.Refresh
                 end)
+            -- (02.11) Отслеживать ли «Изобилие» у этого персонажа (нет — в строке прочерк).
+            sub:CreateDivider()
+            sub:CreateTitle("Отслеживать")
+            sub:CreateCheckbox("Изобилие подношений",
+                function()
+                    local re = ns.db.roster and ns.db.roster[guid]
+                    return not (re and re.ignoreAbundant)
+                end,
+                function()
+                    local re = ns.db.roster and ns.db.roster[guid]
+                    if re then re.ignoreAbundant = (not re.ignoreAbundant) or nil end
+                    Knowledge:Render()
+                    return MenuResponse and MenuResponse.Refresh
+                end)
+            -- (02.11) Какие профессии отслеживать у этого персонажа.
+            if type(e.profs) == "table" and #e.profs > 0 then
+                sub:CreateTitle("Профессии")
+                for _, p in ipairs(e.profs) do
+                    local base = p.base
+                    if base then
+                        sub:CreateCheckbox(p.name or ("#" .. tostring(base)),
+                            function()
+                                local re = ns.db.roster and ns.db.roster[guid]
+                                return not (re and re.ignoreProf and re.ignoreProf[base])
+                            end,
+                            function()
+                                local re = ns.db.roster and ns.db.roster[guid]
+                                if re then
+                                    re.ignoreProf = re.ignoreProf or {}
+                                    re.ignoreProf[base] = (not re.ignoreProf[base]) or nil
+                                end
+                                Knowledge:Render()
+                                return MenuResponse and MenuResponse.Refresh
+                            end)
+                    end
+                end
+                sub:CreateDivider()
+            end
             sub:CreateButton("Удалить из списка", function()
                 if ns.Roster and ns.Roster.Delete then ns.Roster.Delete(guid) end
                 Knowledge:Render()
@@ -792,6 +955,216 @@ local function OpenCharsMenu(anchor)
             end)
         end
     end)
+end
+
+-- =========================================================================
+-- (02.11) Инструкция к окну «Знания и заряды»: значок «i» в левом верхнем углу окна.
+-- Отдельное окно справа: пример таблицы (выдуманные строки) + что значит каждый столбец,
+-- кнопка, пункт меню и значок. Стиль Blizzard (ButtonFrameTemplate), короткие строки.
+-- =========================================================================
+local helpFrame
+local HELP_W = 430
+
+local function BuildHelp()
+    if helpFrame then return helpFrame end
+    local f = CreateFrame("Frame", "RainonUIKnowledgeHelp", UIParent, "ButtonFrameTemplate")
+    f:SetSize(HELP_W + 40, 600)
+    f:SetFrameStrata("HIGH")
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    if f.SetTitle then f:SetTitle("Знания и заряды — инструкция") end
+    if ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(f) end
+    if f.PortraitContainer then f.PortraitContainer:Hide() end
+    table.insert(UISpecialFrames, "RainonUIKnowledgeHelp")
+    if f.Inset then
+        f.Inset:ClearAllPoints()
+        f.Inset:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -26)
+        f.Inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -6, 6)
+    end
+    local host = f.Inset or f
+    local scroll = CreateFrame("ScrollFrame", nil, host, "ScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", -26, 8)
+    local c = CreateFrame("Frame", nil, scroll)
+    c:SetSize(HELP_W, 10)
+    scroll:SetScrollChild(c)
+
+    local y = 0
+    local function Text(str, font, color, indent)
+        local fs = c:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
+        fs:SetPoint("TOPLEFT", indent or 0, y)
+        fs:SetWidth(HELP_W - (indent or 0))
+        fs:SetJustifyH("LEFT")
+        fs:SetSpacing(2)
+        fs:SetText(color and C(color, str) or str)
+        y = y - math.ceil(fs:GetStringHeight()) - 4
+        return fs
+    end
+    local function Header(str)
+        y = y - 8
+        Text(str, "GameFontNormal", "FFD100")
+        local line = c:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(1, 0.82, 0, 0.25)
+        line:SetPoint("TOPLEFT", 0, y + 2)
+        line:SetSize(HELP_W, 1)
+        y = y - 4
+    end
+    -- «Термин — пояснение»: термин жёлтым, пояснение белым
+    local function Item(term, desc) Text(C("FFD100", term) .. " — " .. desc, "GameFontHighlight", nil, 8) end
+
+    Text("Одна строка — один персонаж. Данные записываются, когда заходишь на персонажа и открываешь" ..
+        " профессию. Наведи мышь на ячейку или значок — появится подсказка с подробностями.", "GameFontHighlight")
+
+    -- ---- Пример таблицы (выдуманные строки) ----
+    Header("Пример строки")
+    local cols = {
+        { "Имя", 82 }, { "Профессии", 100 }, { "Изоб.", 36 }, { "Квест", 40 },
+        { "Трактат", 46 }, { "Сферы", 42 }, { "БТ", 34 }, { "ЧС", 34 },
+    }
+    local xs, x = {}, 0
+    for i, col in ipairs(cols) do xs[i] = x; x = x + col[2] end
+    local ROWH = 22
+    local function Cell(i) return xs[i], xs[i] + cols[i][2] / 2 end
+    -- шапка
+    for i, col in ipairs(cols) do
+        local fs = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetTextColor(0.88, 0.65, 0.15)
+        if i == 1 then fs:SetPoint("LEFT", c, "TOPLEFT", 6, y - 10); fs:SetJustifyH("LEFT")
+        else local _, cx = Cell(i); fs:SetPoint("CENTER", c, "TOPLEFT", cx, y - 10) end
+        fs:SetText(col[1])
+    end
+    local hl = c:CreateTexture(nil, "ARTWORK")
+    hl:SetColorTexture(1, 1, 1, 0.12)
+    hl:SetPoint("TOPLEFT", 0, y - 21)
+    hl:SetSize(x, 1)
+    y = y - 24
+
+    local function Icon(tex, cx, cy, size)
+        local t = c:CreateTexture(nil, "ARTWORK")
+        t:SetSize(size or 15, size or 15)
+        t:SetPoint("CENTER", c, "TOPLEFT", cx, cy)
+        t:SetTexture(tex)
+        return t
+    end
+    local function Small(text, cx, cy, left)
+        local fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        if left then fs:SetPoint("LEFT", c, "TOPLEFT", cx, cy) else fs:SetPoint("CENTER", c, "TOPLEFT", cx, cy) end
+        fs:SetText(text)
+        return fs
+    end
+    local function Check(cx, cy, on)
+        Icon("Interface\\Buttons\\UI-CheckBox-Up", cx, cy, 18)
+        if on then Icon("Interface\\Buttons\\UI-CheckBox-Check", cx, cy, 18) end
+    end
+    local function ClassName(name, class)
+        local col = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        return (col and col.WrapTextInColorCode) and col:WrapTextInColorCode(name) or name
+    end
+    local function FakeRow(r)
+        local cy = y - ROWH / 2
+        if r.me then
+            local bg = c:CreateTexture(nil, "BORDER")
+            bg:SetColorTexture(0.55, 0.75, 1.0, 0.12)
+            bg:SetPoint("TOPLEFT", 0, y); bg:SetSize(x, ROWH)
+            local bar = c:CreateTexture(nil, "ARTWORK")
+            bar:SetColorTexture(0.6, 0.8, 1.0, 0.85)
+            bar:SetPoint("TOPLEFT", 0, y); bar:SetSize(2, ROWH)
+        end
+        Small(ClassName(r.name, r.class), 6, cy, true)
+        local px = xs[2]
+        for j, p in ipairs(r.profs) do
+            local ix = px + 4 + (j - 1) * 50
+            Icon(p.icon, ix + 9, cy, 18)
+            Small(C(p.full and "40FF40" or "FFD200", p.conc), ix + 20, cy, true)
+        end
+        local _, ax = Cell(3)
+        if r.ab == nil then Small(C("808080", "–"), ax, cy) else Icon(r.ab and READY_TEX or NOTREADY_TEX, ax, cy) end
+        for k, key in ipairs({ "quest", "treat" }) do
+            local _, qx = Cell(3 + k)
+            for j, v in ipairs(r[key]) do Icon(v and READY_TEX or NOTREADY_TEX, qx + (j - 1.5) * 16, cy, 14) end
+        end
+        local _, sx = Cell(6)
+        for j, v in ipairs(r.kp) do
+            local kx = sx + (j - 1.5) * 20
+            if v == "-" then Small(C("808080", "–"), kx, cy) else Check(kx, cy, v) end
+        end
+        local _, bx = Cell(7); Small(r.bt, bx, cy)
+        local _, wx = Cell(8); Small(r.ws, wx, cy)
+        y = y - ROWH
+    end
+    FakeRow({ me = true, name = "Рейннон", class = "PALADIN",
+        profs = { { icon = "Interface\\Icons\\Trade_Alchemy", conc = "1000", full = true },
+                  { icon = "Interface\\Icons\\INV_Misc_Gem_01", conc = "640" } },
+        ab = true, quest = { true, false }, treat = { true, true }, kp = { true, false },
+        bt = C("40FF40", "2/2"), ws = C("FF5555", "0/1") })
+    FakeRow({ name = "Рейниэль", class = "MAGE",
+        profs = { { icon = "Interface\\Icons\\Trade_Engraving", conc = "880" },
+                  { icon = "Interface\\Icons\\Trade_Tailoring", conc = "1000", full = true } },
+        ab = nil, quest = { false, true }, treat = { false, false }, kp = { "-", true },
+        bt = C("808080", "-"), ws = C("808080", "-") })
+    y = y - 4
+    Text("Рейннон — текущий персонаж (синяя полоса). У Рейниэль изобилие не отслеживается (прочерк)," ..
+        " у наложения чар нет сфер (прочерк), алхимии нет — зарядов нет («-»).", "GameFontDisableSmall")
+
+    -- ---- Столбцы ----
+    Header("Столбцы")
+    Item("Имя", "персонаж, цвет класса. Клик по «Имя» в шапке — сортировка по алфавиту.")
+    Item("Профессии", "значок и концентрация: жёлтая — копится, зелёная — полная. Клик по «Профессии» в шапке — сортировка по концентрации.")
+    Item("Изоб.", "недельное задание «Изобилие подношений».")
+    Item("Квест", "недельное задание учителя — по галке на каждую профессию, в порядке значков.")
+    Item("Трактат", "использован ли «Талассийский трактат» на этой неделе.")
+    Item("Ярмарка", "задание Ярмарки новолуния; столбец виден, только пока идёт Ярмарка.")
+    Item("Сферы", "галка у профессии — знания этой профессии нужны: «Отблеск» и «Свет знания» в награде заказа считаются как деньги (цены — в окне очереди заказов).")
+    Item("БТ / ЧС", "заряды алхимии «Букет трав» и «Чудесный синергетик»: красные — 0, зелёные — полные.")
+
+    -- ---- Кнопки ----
+    Header("Кнопки над таблицей")
+    Item("Мергель", "сколько «Мракозарного мергеля» на всех персонажах (слева).")
+    Item("Сумка", "открывает «Оплату Консорциума» и записывает, что выпало (при включённой очереди заказов).")
+    Item("Крафт", "открыть очередь заказов.")
+    Item("Персонажи", "что показывать и отслеживать у каждого персонажа (ниже).")
+    Item("Столбцы", "какие столбцы видны и сколько строк в окне (10 или 20).")
+    Item("− / +", "размер окна.")
+    Item("Замок", "закрепить окно: жёлтый — закреплено, серый — можно двигать.")
+    Item("Шестерёнка", "настройки RainonUI.")
+
+    -- ---- Меню «Персонажи» ----
+    Header("Меню «Персонажи» → имя")
+    Item("Показывать", "строка видна в таблице.")
+    Item("Изобилие подношений", "снята галка — в столбце «Изоб.» прочерк.")
+    Item("Профессии", "снятая профессия не показывается в строке (значок, квест, трактат, сферы).")
+    Item("Удалить из списка", "стереть данные; персонаж появится снова, когда зайдёшь на него.")
+
+    -- ---- Обозначения ----
+    Header("Обозначения")
+    local leg = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    leg:SetPoint("TOPLEFT", 8, y)
+    leg:SetWidth(HELP_W - 8)
+    leg:SetJustifyH("LEFT")
+    leg:SetSpacing(2)
+    leg:SetText("|T" .. READY_TEX .. ":14|t сделано    |T" .. NOTREADY_TEX .. ":14|t не сделано    " ..
+        C("808080", "–") .. " не отслеживается или нет данных")
+    y = y - math.ceil(leg:GetStringHeight()) - 6
+    Text("После недельного сброса галки становятся крестиками, пока не зайдёшь на персонажа.", "GameFontHighlight", nil, 8)
+    Text("Наведи на значок профессии — время до полной концентрации; у наложения чар ещё задание учителя и добыча при распылении.", "GameFontHighlight", nil, 8)
+
+    c:SetHeight(-y + 10)
+    helpFrame = f
+    return f
+end
+
+function Knowledge.ToggleHelp()
+    local f = BuildHelp()
+    if f:IsShown() then f:Hide(); return end
+    f:ClearAllPoints()
+    if frame and frame:IsShown() then f:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+    else f:SetPoint("CENTER") end
+    f:Show()
 end
 
 local function CreateWindow()
@@ -912,6 +1285,27 @@ local function CreateWindow()
     charsBtn:SetText("Персонажи")
     charsBtn:SetScript("OnClick", function() OpenCharsMenu(charsBtn) end)
 
+    -- «Крафт» — слева от «Персонажи»: открыть/закрыть окно «Очередь заказов» (список крафта,
+    -- тест-модуль OrderQueue.lua). Автоматизацию обдумаем позже.
+    local craftBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    craftBtn:SetSize(56, 20)
+    craftBtn:SetPoint("RIGHT", charsBtn, "LEFT", -BTN_GAP, 0)
+    craftBtn:SetText("Крафт")
+    craftBtn:SetScript("OnClick", function()
+        if InCombatLockdown() then return end
+        -- как /rsorders: открыть очередь заказов, а окно знаний закрыть
+        f:Hide()
+        if SlashCmdList and SlashCmdList.RAINONORDERS then SlashCmdList.RAINONORDERS("") end
+    end)
+    craftBtn:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(craftBtn, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Очередь заказов", 1, 1, 1)
+        GameTooltip:AddLine("Открыть или закрыть окно со списком крафта.", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    craftBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.CraftBtn = craftBtn
+
     -- (Галка «Открывать с профессией» перенесена в окно настроек, вкладка
     --  «Профессии», рядом с кнопкой «Недельные знания…».)
 
@@ -937,6 +1331,26 @@ local function CreateWindow()
     end)
     marl:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.Marl = marl
+
+    -- (02.11) Значок «i» в левом верхнем углу окна — инструкция (Knowledge.ToggleHelp).
+    local helpBtn = CreateFrame("Button", nil, f)
+    helpBtn:SetSize(18, 18)
+    helpBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -3)
+    helpBtn:SetFrameLevel(f:GetFrameLevel() + 10)
+    local ht = helpBtn:CreateTexture(nil, "ARTWORK")
+    ht:SetAllPoints()
+    ht:SetTexture("Interface\Common\help-i")
+    helpBtn:SetHighlightTexture("Interface\Common\help-i", "ADD")
+    helpBtn:SetScript("OnClick", function() Knowledge.ToggleHelp() end)
+    helpBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Инструкция", 1, 1, 1)
+        GameTooltip:AddLine("Как читать таблицу и что делают кнопки.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    helpBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.HelpBtn = helpBtn
+    f:HookScript("OnHide", function() if helpFrame then helpFrame:Hide() end end)
 
     -- Шапка таблицы
     local header = CreateFrame("Frame", nil, host)

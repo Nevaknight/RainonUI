@@ -26,3 +26,4 @@ ignore:
   - .gitignore
   - check.js
   - Архив
+  - CharCheck.lua

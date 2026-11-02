@@ -1099,6 +1099,115 @@ local function CreateOptionsWindow()
             "Иконка трактата (в сумках и сундуке отряда, в т.ч. в Баганаторе)" ..
             " светится пиксельным свечением, пока трактат не использован.",
             function() if ns.Treatise and ns.Treatise.RefreshBank then ns.Treatise.RefreshBank() end end)
+        -- Плашки у окна профессии (02.11)
+        local function RefreshPanels()
+            if ns.OrderQueue and ns.OrderQueue.UpdateProfPanels then ns.OrderQueue.UpdateProfPanels() end
+        end
+        ProfFeatureCB("profItemsPanel", "Панель «Предметы профессии»",
+            "На вкладке крафта любой профессии (как «Знания и заряды»): Раскалывание сущности (наложение чар) и" ..
+            " Харанирский флакон — светятся, если баффа нет, клик как раньше; Золотая звезда, Индикатор изобретательности, Коллектор" ..
+            " перепроизводства, Наводчик находчивости — иконка и сколько есть усилителей крафта" ..
+            " (сумки + банк + банк отряда). Наведи на иконку — подробности и сколько частей.", RefreshPanels)
+        ProfFeatureCB("profPanelsLock", "Закрепить плашку «Предметы профессии»",
+            "Плашка «Предметы профессии» перестаёт двигаться мышью; у закреплённой" ..
+            " плашки нет фона и заголовка — остаётся только содержимое. Переставить: снять галку," ..
+            " перетащить плашку, поставить галку снова.", RefreshPanels)
+        ProfFeatureCB("oqAutoOpen", "Окна сами: «Клиент» — очередь заказов, крафт — «Знания и заряды»",
+            "Открыл вкладку заказов «Клиент» — справа открывается очередь заказов, окно «Знания и заряды»" ..
+            " прячется. Вернулся к крафту — очередь закрывается, «Знания и заряды» возвращается" ..
+            " (или открывается, если включено «Открывать с профессией»).")
+
+        -- (02.11) Очередь заказов: технические настройки (перенесены из окна очереди).
+        local function OQS()
+            RainonUIOrdersDB = RainonUIOrdersDB or {}
+            RainonUIOrdersDB.settings = RainonUIOrdersDB.settings or {}
+            return RainonUIOrdersDB.settings
+        end
+        do
+            local cb = ns.MakeCheckButton(profPanel)
+            cb:SetSize(24, 24)
+            cb:SetPoint("TOPLEFT", 10, y)
+            cb:SetChecked(OQS().remember and true or false)
+            cb:SetScript("OnClick", function(self) OQS().remember = self:GetChecked() and true or false end)
+            cb:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Запоминать мои крафты", 1, 1, 1)
+                GameTooltip:AddLine("Когда делаешь рецепт сам, аддон запоминает реагенты. Рецепт с галочкой (✓)" ..
+                    " в очереди заказов потом берётся с ТВОИМИ реагентами. Всё пишется и в журнал.", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            l:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+            l:SetText("Очередь заказов: запоминать мои крафты")
+            y = y - 28
+        end
+        do
+            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            l:SetPoint("TOPLEFT", 14, y - 4)
+            l:SetText("Свои реагенты лучшего качества, если дороже не больше чем на")
+            local box = CreateFrame("EditBox", nil, profPanel, "InputBoxTemplate")
+            box:SetSize(44, 20)
+            box:SetPoint("LEFT", l, "RIGHT", 10, 0)
+            box:SetAutoFocus(false)
+            box:SetNumeric(true)
+            box:SetMaxLetters(4)
+            local cur = OQS().ownSwap
+            box:SetText(tostring(math.floor((cur == nil and 100000 or cur) / 10000)))
+            local function save(self)
+                local n = tonumber(self:GetText()) or 0
+                OQS().ownSwap = n * 10000
+                self:SetText(tostring(n))
+                self:ClearFocus()
+            end
+            box:SetScript("OnEnterPressed", save)
+            box:SetScript("OnEditFocusLost", save)
+            box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            box:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Свои реагенты лучшего качества", 1, 1, 1)
+                GameTooltip:AddLine("Подбор берёт самое дешёвое качество реагента. Если его нет в сумках, а" ..
+                    " лучшее качество есть — очередь положит своё лучшее, когда доплата за заказ не больше" ..
+                    " этой суммы. 0 — выключено. Пересчёт — после «Обновить» в очереди.", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            box:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            local g = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            g:SetPoint("LEFT", box, "RIGHT", 4, 0)
+            g:SetText("|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t")
+            y = y - 30
+        end
+        -- (02.11) Завершающие реагенты: для выбранного рецепта аддон сам кладёт их в окно крафта
+        -- (Коллектор → Индикатор → Наводчик; что есть в сумках). Значения — ID рецептов.
+        do
+            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            l:SetPoint("TOPLEFT", 14, y - 4)
+            l:SetText("Сам класть завершающие реагенты в рецепт:")
+            local dd = MakeDropdown(profPanel, 220,
+                function()
+                    local v = OQS().finishRecipe
+                    if v == nil then return 1230859 end
+                    return v
+                end,
+                function(v) OQS().finishRecipe = v end,
+                {
+                    { text = "Зелье безрассудства",        value = 1230859 },
+                    { text = "Талассийское масло феникса", value = 1236491 },
+                    { text = "Выключено",                  value = 0 },
+                })
+            dd:SetPoint("LEFT", l, "RIGHT", 10, 0)
+            dd:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Завершающие реагенты", 1, 1, 1)
+                GameTooltip:AddLine("Когда выбираешь этот рецепт в окне профессии, аддон сам кладёт в пустые слоты" ..
+                    " «Завершающий реагент»: Коллектор перепроизводства → Индикатор изобретательности →" ..
+                    " Наводчик находчивости (что есть в сумках и что слот принимает). Золотую звезду не кладёт." ..
+                    " Вынул сам — до следующего выбора рецепта не вернёт.", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            dd:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            y = y - 32
+        end
         y = y - 8
 
         -- Разделительная линия
@@ -2135,6 +2244,64 @@ local function CreateOptionsWindow()
         end)
         y = y - 34
 
+        -- ── «Очередь заказов» (OrderQueue.lua, тестовый модуль) ──
+        y = y - 10
+        Header("Очередь заказов", y, "Тестовая функция")
+        y = y - 30
+        local od = testPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        od:SetPoint("TOPLEFT", PAD, y); od:SetPoint("TOPRIGHT", -PAD, y); od:SetJustifyH("LEFT")
+        od:SetText("Окно справа от окна профессии: заказы покровителей и кнопка «Дальше» " ..
+            "(нажатие — только «Сделать», взять и сдать идут сами). Без CraftSim; цены — из Auctionator.")
+        y = y - math.ceil(od:GetStringHeight()) - 10
+
+        local ocb = ns.MakeCheckButton(testPanel)
+        ocb:SetSize(26, 26)
+        ocb:SetPoint("TOPLEFT", PAD, y)
+        ocb:SetChecked(ns.db.features.orderQueue and true or false)
+        ocb.Text:SetText("ВКЛ очередь заказов")
+        ocb.Text:SetFontObject("GameFontHighlight")
+        ocb:SetScript("OnClick", function(self)
+            ns.db.features.orderQueue = self:GetChecked() and true or false
+            if ns.OrderQueue and ns.OrderQueue.Refresh then ns.OrderQueue.Refresh() end
+        end)
+        y = y - 34
+
+        -- Пропуск кнопок заказа (как в No Mats No Make). Хранятся в RainonUIOrdersDB.settings.
+        local function OQSet() RainonUIOrdersDB = RainonUIOrdersDB or {}; RainonUIOrdersDB.settings = RainonUIOrdersDB.settings or {}; return RainonUIOrdersDB.settings end
+        for _, d in ipairs({
+            { "skipStart",      "Сам брать заказ (кнопка «Начать заказ»)" },
+            { "skipOwnReagent", "Сам подтверждать «свои реагенты»" },
+            { "skipComplete",   "Сам сдавать заказ (кнопка «Завершить заказ»)" },
+        }) do
+            local key = d[1]
+            local scb = ns.MakeCheckButton(testPanel)
+            scb:SetSize(26, 26)
+            scb:SetPoint("TOPLEFT", PAD + 20, y)
+            scb:SetChecked(OQSet()[key] ~= false)
+            scb.Text:SetText(d[2])
+            scb.Text:SetFontObject("GameFontHighlight")
+            scb:SetScript("OnClick", function(self) OQSet()[key] = self:GetChecked() and true or false end)
+            y = y - 28
+        end
+        y = y - 6
+
+        local obtn = CreateFrame("Button", nil, testPanel, "UIPanelButtonTemplate")
+        obtn:SetSize(220, 24)
+        obtn:SetPoint("TOPLEFT", PAD, y)
+        obtn:SetText("Открыть очередь")
+        obtn:SetScript("OnClick", function()
+            if ns.OrderQueue and ns.OrderQueue.Toggle then ns.OrderQueue.Toggle() end
+        end)
+        -- Макросы сумок для панели команд (0.0_/0.1_RainonUI — /click по кнопкам «Сумка»/«Травы»)
+        local mbtn = CreateFrame("Button", nil, testPanel, "UIPanelButtonTemplate")
+        mbtn:SetSize(220, 24)
+        mbtn:SetPoint("LEFT", obtn, "RIGHT", 10, 0)
+        mbtn:SetText("Создать макросы сумок")
+        mbtn:SetScript("OnClick", function()
+            if ns.OrderQueue and ns.OrderQueue.CreateBagMacros then ns.OrderQueue.CreateBagMacros() end
+        end)
+        y = y - 34
+
         testPanel:SetHeight(-y + 12)
     end
 
@@ -2286,6 +2453,7 @@ local function CreateOptionsWindow()
 
 
     SelectTab(1)
+    f.SelectTab = SelectTab   -- (02.11) для ns.OpenOptions(вкладка)
     f:Hide()
     return f
 end
@@ -2303,6 +2471,14 @@ local function ToggleOptions()
         optionsFrame = CreateOptionsWindow()
     end
     optionsFrame:SetShown(not optionsFrame:IsShown())
+end
+
+-- (02.11) Открыть настройки сразу на нужной вкладке (3 = «Профессии»). Вызывают плашки у окна профессии.
+function ns.OpenOptions(tabIndex)
+    if not ns.db or InCombatLockdown() then return end
+    if not optionsFrame then optionsFrame = CreateOptionsWindow() end
+    optionsFrame:Show()
+    if tabIndex and optionsFrame.SelectTab then optionsFrame.SelectTab(tabIndex) end
 end
 
 -- При входе в бой прячем окно настроек, если оно открыто.

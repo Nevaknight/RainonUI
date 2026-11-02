@@ -2,11 +2,11 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.5.5
+## Version: 1.6.0
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
-## SavedVariables: RainonUIDB
+## SavedVariables: RainonUIDB, RainonUIOrdersDB
 ## OptionalDeps: MythicDungeonTools
-## X-Credits: LibEditMode © Adrian L Lange (p3lim)
+## X-Credits: LibEditMode © Adrian L Lange (p3lim); order-queue logic adapted from CraftSim © Florian Schneider (MIT) and No Mats No Make © Teelo (PublicOrdersReagentsColumn)
 
 # Библиотеки (внешние; CurseForge подтягивает их из .pkgmeta при сборке,
 # локально положи официальные библиотеки в папку Libs\)
@@ -43,3 +43,9 @@ TalentReminder.lua
 KeystonePoll.lua
 KeyReroll.lua
 TestBar.lua
+DesignLab.lua
+OrderQueue.lua
+
+# ЛИЧНОЕ (Миша), НЕ для CurseForge: файла нет ни в git (.gitignore), ни в сборке (.pkgmeta ignore).
+# Строку оставляем: в сборке файла просто нет — игра его пропускает.
+CharCheck.lua
