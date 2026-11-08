@@ -63,6 +63,15 @@ local BIG      = 1e12          -- «цена неизвестна» при по�
 local function DB()
     RainonUIOrdersDB = RainonUIOrdersDB or {}
     local d = RainonUIOrdersDB
+    -- One-time local statistics restart requested by Misha, 2026-11-08.
+    -- Dashboard reads active fields only; the original data remains recoverable.
+    if not d.accountingReset20261108 then
+        d.accountingArchive20261108 = {
+            procs = d.procs, procLog = d.procLog, bags = d.bags,
+        }
+        d.procs, d.procLog, d.bags = {}, {}, {}
+        d.accountingReset20261108 = time()
+    end
     d.version  = d.version or 1
     d.settings = d.settings or {}
     local s = d.settings
@@ -913,8 +922,9 @@ local function SortEntries()
     local rank = { check = 1, general = 2 }
     for i, e in ipairs(entries) do e.idx = i end
     table.sort(entries, function(a, b)
-        local ra = a.ok and (rank[a.rule] or 3) or 9
-        local rb = b.ok and (rank[b.rule] or 3) or 9
+        -- (04.11, Миша) чёрный список — в самом низу
+        local ra = a.black and 10 or (a.ok and (rank[a.rule] or 3) or 9)
+        local rb = b.black and 10 or (b.ok and (rank[b.rule] or 3) or 9)
         if ra ~= rb then return ra < rb end
         return a.idx < b.idx
     end)
@@ -1149,7 +1159,7 @@ local function CloseCraft()
         local used = b - Count(id)
         if used > 0 then
             consumed[id] = used
-            local p = Price(id)
+            local p = en.prices and en.prices[id]
             if p then spent = spent + p * used else miss = miss + 1 end
         end
     end
@@ -1194,6 +1204,7 @@ local function StartCraftLog(e, kind, recipeID, name, plan, extra)
         if o then o.crafted = o.crafted or time(); o.craftKind = kind end
     end
     en.reagents = plan
+    en.av = 2
     -- (02.11) подробно: цены реагентов в момент крафта, деньги, точное время
     en.prices = {}
     for id in pairs(plan or {}) do en.prices[id] = Price(id); RememberName(id) end
@@ -1458,14 +1469,20 @@ local function Q(n, recipeID, itemID)
     return ns.C(QCOL[n] or "ffffff", "кач." .. n)
 end
 
-local function SetMark(btn, mark)
+local function SetMark(btn, mark, minQ)
     btn.tex:Hide(); btn.txt:SetText("")
+    if btn.q then btn.q:Hide() end
     if mark == "yes" then
         if pcall(btn.tex.SetAtlas, btn.tex, "common-icon-checkmark") then btn.tex:Show() else btn.txt:SetText(ns.C("1eff00", "V")) end
     elseif mark == "no" then
         if pcall(btn.tex.SetAtlas, btn.tex, "common-icon-redx") then btn.tex:Show() else btn.txt:SetText(ns.C("ff3333", "X")) end
     else
-        btn.txt:SetText(ns.C("808080", "·"))
+        -- (04.11) у заказа с требуемым качеством вместо точки — значок качества (как в игре)
+        if btn.q and minQ and minQ > 0 and pcall(btn.q.SetAtlas, btn.q, "Professions-ChatIcon-Quality-12-Tier" .. minQ) then
+            btn.q:Show()
+        else
+            btn.txt:SetText(ns.C("808080", "·"))
+        end
     end
 end
 
@@ -1523,7 +1540,12 @@ local function EntryTooltip(self)
     if e.model then
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Реагенты (наш подбор):", 1, 0.82, 0)
-        for id, n in pairs(e.plan or {}) do
+        -- (04.11, Миша) реагенты — от дорогих к дешёвым (без цены — в конце)
+        local rlist = {}
+        for id, n in pairs(e.plan or {}) do local p = Price(id); rlist[#rlist + 1] = { id = id, n = n, v = p and p * n or -1 } end
+        table.sort(rlist, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.id < b.id end)
+        for _, rr in ipairs(rlist) do
+            local id, n = rr.id, rr.n
             local nm = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
             local rq = C_TradeSkillUI.GetItemReagentQualityByItemInfo
             local okQ, qq = false, nil
@@ -1542,7 +1564,17 @@ local function EntryTooltip(self)
         GameTooltip:AddDoubleLine("Цена реагентов", Gold(e.ourCost) ..
             (((e.noPrice or 0) > 0) and ns.C("ff6060", " (без цены: " .. e.noPrice .. ")") or ""), 1, 1, 1, 1, 1, 1)
         GameTooltip:AddDoubleLine("Оплата заказа", Gold(e.reward), 1, 1, 1, 1, 1, 1)
-        for _, rw in ipairs(e.rewardList or {}) do
+        -- (04.11, Миша) награды — от дорогих к дешёвым; сумку не сортируем (она в конце)
+        local rws = {}
+        for i, rw in ipairs(e.rewardList or {}) do
+            local v = (rw.id == PAYOUT_BAG and not rw.p) and -2
+                or (rw.kp and KPWorth({ [rw.kpBase or 0] = { [rw.kp] = 1 } }) * rw.n)
+                or (rw.p and rw.p * rw.n) or -1
+            rws[#rws + 1] = { rw = rw, v = v, i = i }
+        end
+        table.sort(rws, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.i < b.i end)
+        for _, x in ipairs(rws) do
+            local rw = x.rw
             if rw.link and rw.kp then
                 local per = KPWorth({ [rw.kpBase or 0] = { [rw.kp] = 1 } })
                 GameTooltip:AddDoubleLine("Награда: " .. rw.link .. " x" .. rw.n,
@@ -1629,6 +1661,11 @@ local function NewRow(parent, i, listW)
     r.mark.tex:SetAllPoints()
     r.mark.txt = r.mark:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     r.mark.txt:SetPoint("CENTER")
+    -- (04.11, Миша) значок требуемого качества — на месте серой точки (центр значка = центр точки)
+    r.mark.q = r.mark:CreateTexture(nil, "ARTWORK")
+    r.mark.q:SetSize(16, 16)
+    r.mark.q:SetPoint("CENTER")
+    r.mark.q:Hide()
     r.mark:SetScript("OnEnter", MarkTooltip)
     r.mark:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r.mark:SetScript("OnClick", function(self)
@@ -1732,7 +1769,7 @@ local function FillRows()
             if view == "queue" then
                 local e = it
                 r.entry, r.recipeID = e, e.recipeID
-                r.mark:Show(); SetMark(r.mark, e.mark)
+                r.mark:Show(); SetMark(r.mark, e.mark, e.minQ)
                 r.icon:SetTexture(e.icon or 134400)
                 local nm = Short(e.name)
                 local cl = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
@@ -1761,11 +1798,7 @@ local function FillRows()
                 elseif e.model then
                     loss = ns.C("808080", "цена ?")
                 end
-                -- (02.11) сумка за заказы — отдельно: «прибыль  + [сумка] ~цена по замерам»
-                if e.bagN and e.bagN > 0 and not e.black then
-                    local bv = OQ.BagValue(PAYOUT_BAG)
-                    if bv then loss = loss .. " " .. BagIcon() .. ns.C("ffd100", "+" .. Gold(bv * e.bagN)) end
-                end
+                -- (04.11, Миша) подпись сумки рядом с ценой убрана: цена сумки — в строке «Оплата Консорциума» внизу окна
                 if e.ok and e.canCraft == false then loss = ns.C("ff9900", "реги ") .. loss end
                 -- (02.11) у заказа из чёрного списка награды не показываем — только пометку;
                 -- у взятого / сданного / исчезнувшего — только статус
@@ -2440,117 +2473,123 @@ local CountProc
 do
 local PROC_MAX = 5000    -- журнал проков: один крафт = одна короткая запись
 local procCast
-local costCache = {}     -- [предмет] = цена реагентов ОДНОГО крафта (для «Создать всё»: дальше крафты без журнала)
-local txCost             -- (02.11) цена реагентов из окна рецепта в момент последнего нажатия «Создать»
--- (02.11) Цена реагентов одного крафта по текущему журналу крафта: что положили (план / amount) +
--- простые обязательные реагенты схемы, которые игра кладёт сама. Цены — Auctionator сейчас.
-local function CraftCost(en)
-    if not (en and en.recipeID) then return nil end
-    local per, amount = 0, (Num(en.amount) or 1)
-    if amount < 1 then amount = 1 end
-    local have = {}
-    for rid, cnt in pairs(en.reagents or {}) do
-        have[rid] = true
-        local pr = (en.prices and en.prices[rid]) or Price(rid)
-        if not pr then return nil end
-        per = per + pr * cnt / amount
+local txCost
+function OQ.ReadReturns(data)
+    local out, valid = {}, true
+    local rr = data and data.resourcesReturned
+    if IsSecret(rr) then return out, false end
+    for _, x in ipairs(type(rr) == "table" and rr or {}) do
+        local r = x.reagent or x
+        local id, q = Num(r.itemID), Num(x.quantity)
+        if id and q and q > 0 then out[id] = (out[id] or 0) + q else valid = false end
     end
-    local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, en.recipeID, false)
-    for _, sl in ipairs((ok and type(sch) == "table" and sch.reagentSlotSchematics) or {}) do
-        local first = sl.reagents and sl.reagents[1]
-        if sl.required and sl.reagentType == REAGENT_REQUIRED and #sl.reagents == 1 and first and first.itemID
-           and not have[first.itemID] then
-            local pr = Price(first.itemID)
-            if not pr then return nil end
-            per = per + pr * (sl.quantityRequired or 0)
+    return out, valid
+end
+function OQ.CaptureCraftCost(recipeID, amount, reagents, _, orderID)
+    txCost, OQ.costContext = nil, nil
+    local rid = Num(recipeID)
+    if not rid then return end
+    local ctx = {recipe=rid, remaining=math.max(1,Num(amount) or 1), plan={}, prices={}, cost=0, np=0,
+        complete=true, src=orderID and "order" or "self", orderID=orderID and tostring(orderID)}
+    txCost, OQ.costContext = ctx, ctx
+    local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, rid, false)
+    if not ok or type(sch)~="table" then ctx.complete=false; return end
+    if Num(sch.quantityMin)==Num(sch.quantityMax) then ctx.base=Num(sch.quantityMin) end
+    if orderID then return end
+    local slots={}
+    for _,r in ipairs(reagents or {}) do
+        local id,cur,q,slot=RInfo(r)
+        id,q,slot=Num(id),Num(q),Num(slot)
+        if slot and q and q>0 then
+            slots[slot]=slots[slot] or {}
+            slots[slot][#slots[slot]+1]={id=id,q=q}
         end
     end
-    return math.floor(per + 0.5)
-end
--- (02.11) ФАКТИЧЕСКАЯ цена реагентов одного крафта — то, что лежит в окне рецепта Blizzard в момент
--- нажатия «Создать» (все слоты: обычные, с качеством, завершающие). Окно держит раскладку на ОДИН
--- крафт, «Создать всё» повторяет её. Раньше брали журнал ручного крафта — туда игра передаёт не все
--- реагенты (у «Зелья безрассудства» попадал только Индикатор → ~0,9з за крафт вместо реальной цены).
--- Реагент без цены на аукционе (Индикатор и т.п.) — считаем 0 и пишем, сколько таких (np).
-function OQ.CaptureCraftCost(recipeID)
-    txCost = nil
-    local form = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
-    local tr = form and form:IsVisible() and form.GetTransaction and form:GetTransaction()
-    if not (tr and tr.GetAllocations and tr.GetRecipeID) then return end
-    local rid = Num(tr:GetRecipeID())
-    if not rid or rid ~= Num(recipeID) then return end
-    local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, rid, false)
-    if not (ok and type(sch) == "table") then return end
-    local sum, np, any = 0, 0, false
-    for _, sl in ipairs(sch.reagentSlotSchematics or {}) do
-        local okA, allocs = pcall(tr.GetAllocations, tr, sl.slotIndex)
-        if okA and allocs and allocs.Enumerate then
-            for _, a in allocs:Enumerate() do
-                local r = a.GetReagent and a:GetReagent()
-                local id = r and Num(r.itemID)
-                local q = Num(a.GetQuantity and a:GetQuantity()) or 0
-                if id and q > 0 then
-                    any = true
-                    local pr = Price(id)
-                    if pr then sum = sum + pr * q else np = np + 1 end
+    local form=ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+    local tr=form and form:IsVisible() and form.GetTransaction and form:GetTransaction()
+    if not (tr and tr.GetRecipeID and Num(tr:GetRecipeID())==rid) then tr=nil end
+    for _,sl in ipairs(sch.reagentSlotSchematics or {}) do
+        local alloc=slots[sl.dataSlotIndex]
+        if not alloc and reagents==nil and tr and tr.GetAllocations then
+            local okA,aa=pcall(tr.GetAllocations,tr,sl.slotIndex)
+            if okA and aa and aa.Enumerate then
+                alloc={}
+                for _,x in aa:Enumerate() do
+                    local r=x.GetReagent and x:GetReagent()
+                    local q=Num(x.GetQuantity and x:GetQuantity())
+                    if r and q and q>0 then alloc[#alloc+1]={id=Num(r.itemID),q=q} end
                 end
             end
         end
+        local need=Num(sl.quantityRequired) or 0
+        if (not alloc or #alloc==0) and sl.required and need>0 and #(sl.reagents or {})==1 then
+            alloc={{id=Num(sl.reagents[1].itemID),q=need}}
+        end
+        local supplied=0
+        for _,x in ipairs(alloc or {}) do
+            supplied=supplied+x.q
+            if x.id then ctx.plan[x.id]=(ctx.plan[x.id] or 0)+x.q else ctx.complete=false end
+        end
+        if sl.required and supplied<need then ctx.complete=false end
     end
-    if any then txCost = { recipe = rid, cost = math.floor(sum + 0.5), np = np } end
-end
--- Что вернула находчивость в этом событии — по цене аукциона (вычитаем из реагентов крафта).
-local function ReturnedValue(data)
-    local rr = data.resourcesReturned
-    if not rr or IsSecret(rr) then return 0 end
-    local v = 0
-    for _, x in ipairs(rr) do
-        local id = x.itemID and Num(x.itemID)
-        local pr = id and Price(id)
-        if pr then v = v + pr * (Num(x.quantity) or 1) end
+    for id,q in pairs(ctx.plan) do
+        local p=Price(id)
+        if p then ctx.prices[id]=p;ctx.cost=ctx.cost+p*q else ctx.np=ctx.np+1 end
+        RememberName(id)
     end
-    return v
 end
-CountProc = function(data)
-    if type(data) ~= "table" or IsSecret(data.itemID) then return end
-    local d = DB()
-    local id = Num(data.itemID)
+local function Revalue(rec,ctx)
+    rec.c=nil
+    if not ctx or not ctx.complete or not rec.returnsValid or rec.src~="self" then return end
+    local cost=ctx.cost
+    for id,q in pairs(rec.returned) do
+        if ctx.plan[id] and ctx.prices[id] then cost=cost-ctx.prices[id]*math.min(q,ctx.plan[id]) end
+    end
+    rec.c=math.max(0,math.floor(cost+0.5))
+end
+CountProc=function(data)
+    if type(data)~="table" or IsSecret(data.itemID) or data.firstCraftReward then return end
+    local d,id=DB(),Num(data.itemID)
     if not id or not d.watch[id] then return end
-    local n, m = Num(data.quantity) or 0, Num(data.multicraft) or 0
-    local op, now = Num(data.operationID), GetTime()
-    local pc = procCast
-    if pc and pc.id == id and ((op and pc.op == op) or now - pc.at < 0.25) then
-        pc.rec.n = pc.rec.n + n
-        pc.agg.n = pc.agg.n + n
-        if pc.rec.c then pc.rec.c = math.max(0, pc.rec.c - ReturnedValue(data)) end
-        if pc.rec.n > (pc.agg.best or 0) then pc.agg.best = pc.rec.n end
-        pc.at = now
+    local n,m=Num(data.quantity),Num(data.multicraft) or 0
+    if not n or n<=0 then return end
+    local op=Num(data.operationID)
+    if op==0 then op=nil end
+    local ctx,pc=txCost,procCast
+    local rr,valid=OQ.ReadReturns(data)
+    if pc and pc.id==id and pc.ctx==ctx and op and pc.op==op then
+        local old=pc.rec.m
+        pc.rec.n=pc.rec.n+n;pc.rec.m=math.max(old,m)
+        pc.agg.n=pc.agg.n+n;pc.agg.x=pc.agg.x+pc.rec.m-old
+        if old==0 and pc.rec.m>0 then pc.agg.p=pc.agg.p+1 end
+        for rid,q in pairs(rr) do pc.rec.returned[rid]=math.max(pc.rec.returned[rid] or 0,q) end
+        pc.rec.returnsValid=pc.rec.returnsValid and valid
+        pc.rec.quantityOK=pc.rec.base~=nil and pc.rec.n==pc.rec.base+pc.rec.m
+        Revalue(pc.rec,ctx)
+        pc.agg.best=math.max(pc.agg.best or 0,pc.rec.n)
         return
     end
-    local who = PlayerKey()
-    d.procs[id] = d.procs[id] or {}
-    local a = d.procs[id][who]
-    if not a then a = { c = 0, p = 0, x = 0, n = 0 }; d.procs[id][who] = a end
-    a.c, a.n, a.t = a.c + 1, a.n + n, time()
-    if m > 0 then a.p, a.x = a.p + 1, a.x + m end
-    if n > (a.best or 0) then a.best = n end
-    -- (02.11) цена реагентов крафта и цена штуки — для «сколько золота дал крафт» в дашборде
-    -- Заказ — наши реагенты по журналу заказа (реагенты заказчика не наши); свой крафт — то, что
-    -- лежало в окне рецепта при нажатии «Создать» (OQ.CaptureCraftCost); иначе — прошлый крафт того же предмета.
-    local cost, np
-    local cl = current and current.log
-    if cl and cl.orderID then cost = CraftCost(cl)
-    elseif txCost then cost, np = txCost.cost, txCost.np end
-    if cost then costCache[id] = { cost, np } elseif costCache[id] then cost, np = costCache[id][1], costCache[id][2] end
-    if cost then cost = math.max(0, cost - ReturnedValue(data)) end
-    local rec = { t = time(), w = who, i = id, n = n, m = m, c = cost, v = Price(id), cv = cost and 2 or nil,
-                  np = (np and np > 0) and np or nil }
-    local log = d.procLog
-    log[#log + 1] = rec
-    while #log > PROC_MAX do table.remove(log, 1) end
-    procCast = { id = id, op = op, at = now, rec = rec, agg = a }
+    local cl=current and current.log
+    local claimed=C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
+    local oid=(ctx and ctx.orderID) or (cl and cl.orderID) or (claimed and claimed.orderID)
+    local src=oid and "order" or (ctx and ctx.remaining>0 and ctx.src or "unknown")
+    local rec={t=time(),w=PlayerKey(),i=id,n=n,m=m,v=Price(id),cv=3,src=src,
+        orderID=oid and tostring(oid),recipe=ctx and ctx.recipe,op=op,base=ctx and ctx.base,
+        np=ctx and ctx.np,returned=rr,returnsValid=valid}
+    rec.quantityOK=rec.base~=nil and n==rec.base+m
+    if ctx and ctx.remaining>0 then Revalue(rec,ctx);ctx.remaining=ctx.remaining-1 end
+    d.procs[id]=d.procs[id] or {}
+    local agg=d.procs[id][rec.w]
+    if not agg then agg={c=0,p=0,x=0,n=0};d.procs[id][rec.w]=agg end
+    agg.c,agg.n,agg.t=agg.c+1,agg.n+n,rec.t
+    if m>0 then agg.p,agg.x=agg.p+1,agg.x+m end
+    agg.best=math.max(agg.best or 0,n)
+    d.procLog[#d.procLog+1]=rec
+    while #d.procLog>PROC_MAX do table.remove(d.procLog,1) end
+    procCast={id=id,op=op,ctx=ctx,rec=rec,agg=agg}
     RememberName(id)
 end
+
 end
 
 -- -------------------------------------------------------------------------
@@ -2604,15 +2643,11 @@ ev:SetScript("OnEvent", function(_, event, ...)
                 en.gotQ = Num(data.craftingQuality) or en.gotQ
                 en.concSpent = Num(data.concentrationSpent) or en.concSpent
                 en.multi = Num(data.multicraft) or en.multi
-                if data.resourcesReturned and not IsSecret(data.resourcesReturned) and next(data.resourcesReturned) then
-                    en.resourceful = true
-                    -- (02.11) что именно вернула находчивость
-                    en.returned = {}
-                    for _, rr in ipairs(data.resourcesReturned) do
-                        local iid = rr.itemID and Num(rr.itemID)
-                        if iid then en.returned[iid] = (en.returned[iid] or 0) + (Num(rr.quantity) or 1) end
-                    end
-                end
+                local returned, validReturns = OQ.ReadReturns(data)
+                en.returned = en.returned or {}
+                for iid, qty in pairs(returned) do en.returned[iid] = math.max(en.returned[iid] or 0, qty) end
+                en.resourceful = next(en.returned) ~= nil
+                en.returnsValid = validReturns
                 en.resultItem = data.itemID and Num(data.itemID) or nil
                 en.resultN = data.quantity and Num(data.quantity) or nil
                 Trace("craft_result", { oid = en.orderID, name = en.name, gotQ = en.gotQ, concSpent = en.concSpent,
@@ -2783,7 +2818,7 @@ end)
 -- Ручные крафты (для «Запоминать мои крафты»). Чужой код не трогаем — только слушаем.
 if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe and hooksecurefunc then
     hooksecurefunc(C_TradeSkillUI, "CraftRecipe", function(...)
-        pcall(OQ.CaptureCraftCost, (...))   -- (02.11) цена реагентов для «Проки и золото»
+        pcall(OQ.CaptureCraftCost, ...)   -- (02.11) цена реагентов для «Проки и золото»
         local ok, err = pcall(OnManualCraft, ...)
         if not ok and ns.debug then print("|cFFFF3333RainonUI OrderQueue:|r", err) end
     end)
@@ -2821,7 +2856,7 @@ local BAG_BUTTONS = {
     { key = "Payout", text = "Сумка", ids = { 246585 }, macro = "/use item:246585" },
     { key = "Herbs",  text = "Травы", ids = { 245650, 245651 }, macro = "/use item:245650\n/use item:245651" },
 }
-local BAG_RECENT_MAX = 300   -- цена сумки считается по последним 300 открытиям (скользящее окно)
+local BAG_RECENT_MAX = 3000  -- цена сумки считается по последним 300 открытиям (скользящее окно)
 
 local function BagsDB()
     local d = DB()
@@ -2854,15 +2889,10 @@ local function BagFinish()
     if not o or o.done then return end
     o.done = true
     session = nil
-    o.money = math.max(0, (GetMoney() or 0) - (o.gold0 or 0))
-    -- Окна добычи не было — смотрим, что прибавилось в сумках.
-    if not o.looted and o.inv then
-        local now = InvSnapshot()
-        for id, n in pairs(now) do
-            local gain = n - (o.inv[id] or 0)
-            if gain > 0 and not BAG_SET[id] then o.items["i:" .. id] = (o.items["i:" .. id] or 0) + gain end
-        end
-    end
+    local now = InvSnapshot()
+    if (o.inv[o.id] or 0) - (now[o.id] or 0) ~= 1 then return end
+    o.verified = o.how ~= "count" and o.looted and o.slots > 0 and o.cleared == o.slots
+    o.money = 0 -- account gold deltas cannot be attributed to this bag
     -- След для проверки (последние 30 открытий, даже пустые).
     local d = DB()
     d.bagDebug = d.bagDebug or {}
@@ -2871,21 +2901,24 @@ local function BagFinish()
     d.bagDebug[#d.bagDebug + 1] = { t = time(), id = o.id, looted = o.looted or false, bagUpd = o.bagUpd or 0,
         items = nItems, money = o.money, how = o.how }
     while #d.bagDebug > 30 do table.remove(d.bagDebug, 1) end
-    if not next(o.items) and o.money <= 0 then return end   -- ничего не пришло — не пишем
+    -- Keep unconfirmed openings, but never value them as verified loot.
     local bags = BagsDB()
     local b = bags[o.id]
     if not b then b = { name = o.name, opened = 0, money = 0, drops = {}, recent = {} }; bags[o.id] = b end
     b.name = o.name or b.name
     b.opened = b.opened + 1
     b.money = b.money + o.money
-    for k, n in pairs(o.items) do
+    for k, n in pairs(o.verified and o.items or {}) do
         RememberName(tostring(k):match("^i:(%d+)"))
         local dr = b.drops[k]
         if not dr then dr = { n = 0, hits = 0 }; b.drops[k] = dr end
         dr.n = dr.n + n
         dr.hits = dr.hits + 1
     end
-    b.recent[#b.recent + 1] = { t = time(), who = PlayerKey(), items = o.items, money = o.money }
+    local prices = {}
+    for k in pairs(o.items) do local id = tonumber(k:match("^i:(%d+)")); if id then prices[k] = Price(id) end end
+    b.recent[#b.recent + 1] = { t = time(), who = PlayerKey(), items = o.items, money = o.money,
+        av = 2, verified = o.verified and true or false, source = "loot-slots", prices = prices }
     if OQ.BagValueReset then OQ.BagValueReset(o.id) end
     while #b.recent > BAG_RECENT_MAX do table.remove(b.recent, 1) end
 end
@@ -2899,7 +2932,7 @@ local function BagOpened(id, how, invBefore, goldBefore)
         BagFinish()
     end
     session = { id = id, name = ItemName(id), t = now, items = {}, money = 0, gold0 = goldBefore or GetMoney(),
-                inv = invBefore or InvSnapshot(), how = how }
+                inv = invBefore or InvSnapshot(), how = how, pending = {}, slots = 0, cleared = 0 }
     local o = session
     C_Timer.After(2, function() if session == o then BagFinish() end end)   -- страховка
 end
@@ -2922,24 +2955,14 @@ if C_Container and C_Container.UseContainerItem and hooksecurefunc then
 end
 
 local bagEv = CreateFrame("Frame")
-for _, name in ipairs({ "LOOT_READY", "LOOT_CLOSED", "BAG_UPDATE_DELAYED", "CURRENCY_DISPLAY_UPDATE" }) do
+for _, name in ipairs({ "LOOT_READY", "LOOT_SLOT_CLEARED", "LOOT_CLOSED", "PLAYER_ENTERING_WORLD" }) do
     pcall(bagEv.RegisterEvent, bagEv, name)
 end
 bagEv:SetScript("OnEvent", function(_, event, ...)
+    if event == "PLAYER_ENTERING_WORLD" then session = nil; return end
     local o = session
     if not o or o.done then return end
     pcall(function(...)
-        if event == "BAG_UPDATE_DELAYED" and not o.looted then
-            -- содержимое легло прямо в сумки (без окна добычи) — подводим итог чуть позже
-            o.bagUpd = (o.bagUpd or 0) + 1
-            C_Timer.After(0.4, function() if session == o and not o.looted then BagFinish() end end)
-            return
-        elseif event == "CURRENCY_DISPLAY_UPDATE" then
-            local cid, _, change = ...
-            cid, change = Num(cid), Num(change)
-            if cid and change and change > 0 and not o.looted then o.items["c:" .. cid] = (o.items["c:" .. cid] or 0) + change end
-            return
-        end
         if event == "LOOT_READY" then
             if o.looted then return end
             o.looted = true
@@ -2949,11 +2972,17 @@ bagEv:SetScript("OnEvent", function(_, event, ...)
                 qty = Num(qty) or 1
                 local cid = Num(currencyID)
                 local iid = link and not IsSecret(link) and tonumber(link:match("item:(%d+)"))
-                if cid and cid > 0 then
-                    o.items["c:" .. cid] = (o.items["c:" .. cid] or 0) + qty
-                elseif iid then
-                    o.items["i:" .. iid] = (o.items["i:" .. iid] or 0) + math.max(qty, 1)
-                end
+                o.slots = o.slots + 1
+                local key = cid and cid > 0 and ("c:" .. cid) or iid and ("i:" .. iid)
+                if key then o.pending[i] = { key = key, qty = qty } end
+            end
+        elseif event == "LOOT_SLOT_CLEARED" then
+            local slot = Num(...)
+            local x = slot and o.pending[slot]
+            if x then
+                o.pending[slot] = nil
+                o.cleared = o.cleared + 1
+                o.items[x.key] = (o.items[x.key] or 0) + x.qty
             end
         elseif event == "LOOT_CLOSED" then
             -- деньги из сумки приходят при сборе добычи — берём разницу чуть позже
@@ -3013,9 +3042,21 @@ end)
 -- Хранение: RainonUIOrdersDB.shop = { [itemID] = { [профессия] = сколько купить } }.
 local SHOP_LIST = "!RainonUI — покупки"
 do
-local watchOpen, lastCnt, writeT = false, {}, nil
 local function ShopDB() local d = DB(); d.shop = d.shop or {}; return d.shop end
 local function ShopTotal(byProf) local t = 0; for _, n in pairs(byProf) do t = t + n end; return t end
+-- строка поиска Auctionator для предмета (n = nil — без количества, для поиска строки в списке)
+local function TermFor(id, n)
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
+    if not (api and api.ConvertToSearchString and name and name ~= "") then return nil end
+    local term = { searchString = name, isExact = true, quantity = n }
+    local rq = C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo
+    local okQ, q = false, nil
+    if rq then okQ, q = pcall(rq, id) end
+    if okQ and Num(q) and Num(q) >= 1 then term.tier = Num(q) end
+    local ok, str = pcall(api.ConvertToSearchString, CALLER, term)
+    return (ok and type(str) == "string") and str or nil
+end
 -- записать список в Auctionator по копилке (пустая копилка — пустой список)
 local function WriteList(silent)
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
@@ -3024,18 +3065,8 @@ local function WriteList(silent)
     for id, byProf in pairs(ShopDB()) do
         local n = ShopTotal(byProf)
         if n > 0 then
-            local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
-            if name and name ~= "" then
-                local term = { searchString = name, isExact = true, quantity = n }
-                local rq = C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo
-                local okQ, q = false, nil
-                if rq then okQ, q = pcall(rq, id) end
-                if okQ and Num(q) and Num(q) >= 1 then term.tier = Num(q) end
-                local ok, str = pcall(api.ConvertToSearchString, CALLER, term)
-                if ok and type(str) == "string" then terms[#terms + 1] = str end
-            else
-                noName = noName + 1
-            end
+            local str = TermFor(id, n)
+            if str then terms[#terms + 1] = str else noName = noName + 1 end
         else
             ShopDB()[id] = nil
         end
@@ -3043,6 +3074,17 @@ local function WriteList(silent)
     local ok, err = pcall(api.CreateShoppingList, CALLER, SHOP_LIST, terms)
     if not ok and not silent then ns.Print("Очередь заказов: Auctionator не создал список — " .. tostring(err)) end
     return ok, #terms, noName
+end
+-- (04.11) название профессии стола — в начале сообщения, цветом способности (как ссылка на заклинание)
+local function ProfLabel()
+    local nm
+    local okB, bi = pcall(function() return C_TradeSkillUI.GetBaseProfessionInfo() end)
+    if okB and bi and bi.professionName and bi.professionName ~= "" then nm = bi.professionName end
+    if not nm then
+        local okC, ci = pcall(function() return C_TradeSkillUI.GetChildProfessionInfo() end)
+        nm = okC and ci and (ci.parentProfessionName or ci.professionName) or nil
+    end
+    return ns.C("71d5ff", nm or "Профессия")
 end
 function OQ.MakeShoppingList()
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
@@ -3053,7 +3095,7 @@ function OQ.MakeShoppingList()
     if IsShiftKeyDown() then
         DB().shop = {}
         WriteList()
-        ns.Print(("Очередь заказов: список покупок «%s» очищен."):format(SHOP_LIST))
+        ns.Print("Список покупок: " .. ns.C("ffd100", "очищен"))
         return
     end
     -- нужно по профессиям столов, у которых сейчас стоим (заказы «к работе» в очереди)
@@ -3076,47 +3118,68 @@ function OQ.MakeShoppingList()
     end
     local ok, nTerms, noName = WriteList()
     if not ok then return end
+    -- (04.11, Миша) коротко: «Алхимия - Список покупок: Обновлён (N)», «Обновлён» зелёным
     if added == 0 then
-        ns.Print("Очередь заказов: на заказы этого стола всего хватает" ..
-            (nTerms > 0 and (" — в списке «" .. SHOP_LIST .. "» осталось " .. nTerms .. " от других столов") or "") .. ".")
+        ns.Print(ProfLabel() .. " - Список покупок: " .. ns.C("1eff00", "всего хватает") ..
+            (nTerms > 0 and (" (в списке " .. nTerms .. " от других столов)") or ""))
     else
-        ns.Print(("Очередь заказов: список «%s» — %d реагентов (этот стол: %d)%s. Аукцион → Auctionator → «Покупки». Shift+клик — очистить."):format(
-            SHOP_LIST, nTerms, added, noName > 0 and (" (ещё " .. noName .. " без названия — нажми ещё раз)") or ""))
+        ns.Print(ProfLabel() .. " - Список покупок: " .. ns.C("1eff00", "Обновлён") .. " (" .. nTerms .. ")" ..
+            (noName > 0 and (" — ещё " .. noName .. " без названия, нажми ещё раз") or ""))
     end
     Trace("shopping", { n = nTerms, added = added })
 end
--- купленное: на аукционе / почте смотрим, сколько предмета из копилки прибавилось
-local function SnapCounts() lastCnt = {}; for id in pairs(ShopDB()) do lastCnt[id] = Count(id) end end
-local function OnBags()
-    if not watchOpen then return end
-    local shop, changed = ShopDB(), false
-    for id, byProf in pairs(shop) do
-        local now = Count(id)
-        local got = now - (lastCnt[id] or now)
-        lastCnt[id] = now
-        if got > 0 then
-            for pk, n in pairs(byProf) do        -- уменьшаем, начиная с любой профессии
-                local take = math.min(n, got)
-                byProf[pk], got = n - take, got - take
-                if byProf[pk] <= 0 then byProf[pk] = nil end
-                if got <= 0 then break end
+-- (04.11, Миша: «как в CraftSim, не придумывай») Купленное убираем из списка СРАЗУ после покупки на аукционе —
+-- точно как CraftSim (Modules/Shopping/Shopping.lua): ловим подтверждение покупки товара
+-- (hooksecurefunc C_AuctionHouse.ConfirmCommoditiesPurchase → itemID, сколько), на COMMODITY_PURCHASE_SUCCEEDED
+-- уменьшаем строку в копилке и правим ЭТУ строку списка Auctionator (AlterShoppingListItem / DeleteShoppingListItem),
+-- список не пересоздаём (раньше пересоздавали по счёту сумок — Auctionator сбрасывал поиск и строки «не пропадали»).
+-- Купил всё — строка исчезает; купил всё по списку — список пустой.
+local pendingBuy
+local function BoughtItem(id, got)
+    local shop = ShopDB()
+    local byProf = shop[id]
+    if not byProf then return end
+    local before = ShopTotal(byProf)
+    for pk, n in pairs(byProf) do   -- уменьшаем, начиная с любой профессии
+        local take = math.min(n, got)
+        byProf[pk], got = n - take, got - take
+        if byProf[pk] <= 0 then byProf[pk] = nil end
+        if got <= 0 then break end
+    end
+    local left = ShopTotal(byProf)
+    if left <= 0 then shop[id] = nil end
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    local done = false
+    if api and api.GetShoppingListItems and api.AlterShoppingListItem and api.DeleteShoppingListItem then
+        local base = TermFor(id, nil)
+        local okL, items = pcall(api.GetShoppingListItems, CALLER, SHOP_LIST)
+        if base and okL and type(items) == "table" then
+            for _, str in ipairs(items) do
+                if type(str) == "string" and str:sub(1, #base) == base then
+                    if left > 0 then
+                        local new = TermFor(id, left)
+                        done = new and pcall(api.AlterShoppingListItem, CALLER, SHOP_LIST, str, new) or false
+                    else
+                        done = pcall(api.DeleteShoppingListItem, CALLER, SHOP_LIST, str)
+                    end
+                    break
+                end
             end
-            if not next(byProf) then shop[id] = nil end
-            changed = true
         end
     end
-    if changed then
-        if writeT then writeT:Cancel() end
-        writeT = C_Timer.NewTimer(0.5, function() writeT = nil; WriteList(true) end)
-    end
+    if not done then WriteList(true) end   -- строку не нашли / старый Auctionator — переписываем список целиком
+    Trace("shop_bought", { id = id, before = before, left = left, inPlace = done })
 end
-for _, ev in ipairs({ "AUCTION_HOUSE_SHOW", "MAIL_SHOW" }) do
-    ns.RegisterEvent(ev, function() watchOpen = true; SnapCounts() end)
+if C_AuctionHouse and C_AuctionHouse.ConfirmCommoditiesPurchase and hooksecurefunc then
+    hooksecurefunc(C_AuctionHouse, "ConfirmCommoditiesPurchase", function(itemID, quantity)
+        pendingBuy = { id = Num(itemID), n = Num(quantity) or 0 }
+    end)
 end
-for _, ev in ipairs({ "AUCTION_HOUSE_CLOSED", "MAIL_CLOSED" }) do
-    ns.RegisterEvent(ev, function() OnBags(); watchOpen = false end)
-end
-ns.RegisterEvent("BAG_UPDATE_DELAYED", function() OnBags() end)
+ns.RegisterEvent("COMMODITY_PURCHASE_SUCCEEDED", function()
+    local b = pendingBuy; pendingBuy = nil
+    if b and b.id and b.n > 0 then BoughtItem(b.id, b.n) end
+end)
+ns.RegisterEvent("COMMODITY_PURCHASE_FAILED", function() pendingBuy = nil end)
 end
 
 -- Макросы для панели команд: имена 0.0_/0.1_RainonUI — встают ПЕРЕД макросами паладина (1.x_RainonUI).
@@ -3175,37 +3238,24 @@ function OQ.BagValue(id)
     return v, np, b, n
 end
 BagValueRaw = function(id)
-    -- Средняя цена ОДНОЙ сумки: что выпадало в последних открытиях (до 300) × ТЕКУЩАЯ цена
-    -- Auctionator. Удача сглаживается количеством открытий, а рынок отражается сразу.
     local b = BagsDB()[id]
-    if not b or b.opened == 0 then return nil end
-    local list = (b.recent and #b.recent > 0) and b.recent or nil
-    local sum, noPrice, n = 0, 0, 0
-    local seenNo = {}
-    if list then
-        n = #list
-        for _, r in ipairs(list) do
+    if not b then return nil end
+    local sum, missing, n = 0, 0, 0
+    for _, r in ipairs(b.recent or {}) do
+        if r.av == 2 and r.verified then
+            n = n + 1
             sum = sum + (r.money or 0)
-            for k, cnt in pairs(r.items or {}) do
+            for k, q in pairs(r.items or {}) do
                 local iid = tonumber(tostring(k):match("^i:(%d+)"))
                 if iid then
                     local p = Price(iid)
-                    if p then sum = sum + p * cnt elseif not seenNo[iid] then seenNo[iid] = true; noPrice = noPrice + 1 end
+                    if p then sum = sum + p*q else missing = missing+1 end
                 end
             end
         end
-    else
-        n = b.opened
-        sum = b.money
-        for k, dr in pairs(b.drops) do
-            local iid = tonumber(k:match("^i:(%d+)"))
-            if iid then
-                local p = Price(iid)
-                if p then sum = sum + p * dr.n else noPrice = noPrice + 1 end
-            end
-        end
     end
-    return sum / math.max(n, 1), noPrice, b, n
+    if n == 0 or missing > 0 then return nil, missing, b, n end
+    return sum/n, 0, b, n
 end
 
 -- Подсказка сумки: сколько раз открыли и средняя цена.
@@ -3691,6 +3741,41 @@ local function FinishRecipe()
     return (v ~= 0) and v or nil
 end
 
+-- Shared priority, availability and lock checks for manual UI and addon crafts.
+function OQ.PickFinishing(sch, info, used)
+    if not (sch and Professions and Professions.GetReagentSlotStatus) then return end
+    local ok, locked = pcall(Professions.GetReagentSlotStatus, sch, info)
+    if not ok or locked then return end
+    local allowed = {}
+    for _, r in ipairs(sch.reagents or {}) do if r.itemID then allowed[r.itemID] = true end end
+    for _, id in ipairs(FINISH_ORDER) do
+        if allowed[id] and not used[id] then
+            local reagent = { itemID = id }
+            local need = (sch.GetQuantityRequired and sch:GetQuantityRequired(reagent)) or sch.quantityRequired or 1
+            need = math.max(1, Num(need) or 1)
+            local have = Num(C_Item.GetItemCount(id)) or 0 -- bags only, like manual mode
+            if have >= need then return reagent, need, math.floor(have / need) end
+        end
+    end
+end
+function OQ.PlanFinishing(recipeID, schematic, info)
+    local result, limit, used = {}, math.huge, {}
+    if FinishRecipe() ~= recipeID then return result, limit end
+    local finishing = Enum.CraftingReagentType and Enum.CraftingReagentType.Finishing
+    if not finishing then return result, limit end
+    for _, slot in ipairs(schematic.reagentSlotSchematics or {}) do
+        if slot.reagentType == finishing and slot.dataSlotIndex then
+            local reagent, need, count = OQ.PickFinishing(slot, info, used)
+            if reagent then
+                used[reagent.itemID] = true
+                result[#result+1] = { reagent=reagent, quantity=need, dataSlotIndex=slot.dataSlotIndex }
+                limit = math.min(limit, count)
+            end
+        end
+    end
+    return result, limit
+end
+
 local function FillFinishing(form)
     local target = FinishRecipe()
     if not (target and form and form.GetRecipeInfo and form.GetTransaction) then return end
@@ -3705,26 +3790,13 @@ local function FillFinishing(form)
     for _, slot in ipairs(slots) do
         local sch = slot.GetReagentSlotSchematic and slot:GetReagentSlotSchematic()
         local idx = sch and sch.slotIndex
-        local locked = false
-        if sch and Professions and Professions.GetReagentSlotStatus then
-            local okL, l = pcall(Professions.GetReagentSlotStatus, sch, info)
-            locked = okL and l or false
-        end
-        if idx and not locked and not tr:HasAnyAllocations(idx) then
-            local allowed = {}
-            for _, r in ipairs(sch.reagents or {}) do if r.itemID then allowed[r.itemID] = r end end
-            for _, id in ipairs(FINISH_ORDER) do
-                if allowed[id] and not used[id] then
-                    local reagent = (Professions and Professions.CreateCraftingReagent and Professions.CreateCraftingReagent(id)) or { itemID = id }
-                    local need = (sch.GetQuantityRequired and sch:GetQuantityRequired(reagent)) or sch.quantityRequired or 1
-                    if Count(id) >= need and C_Item.GetItemCount(id) >= need then   -- в сумках, не в банке
-                        tr:OverwriteAllocation(idx, reagent, need)
-                        if slot.SetReagent then slot:SetReagent(reagent) end
-                        used[id], changed = true, true
-                        put[#put + 1] = ItemName(id)
-                        break
-                    end
-                end
+        if idx and not tr:HasAnyAllocations(idx) then
+            local reagent, need = OQ.PickFinishing(sch, info, used)
+            if reagent then
+                tr:OverwriteAllocation(idx, reagent, need)
+                if slot.SetReagent then slot:SetReagent(reagent) end
+                used[reagent.itemID], changed = true, true
+                put[#put+1] = ItemName(reagent.itemID)
             end
         end
     end

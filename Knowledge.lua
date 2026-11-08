@@ -17,6 +17,7 @@ local _, ns = ...
 local C = ns.C
 local READY_TEX    = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOTREADY_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+local WAITING_TEX  = "Interface\\RaidFrame\\ReadyCheck-Waiting"   -- (04.11) жёлтый «?» — задание взято, идёт прогресс
 
 local ROW_H     = 22
 local HEADER_H  = 22
@@ -551,8 +552,10 @@ local function FillCell(r, col, x, e)
         else
             r.abundant:ClearAllPoints()
             r.abundant:SetPoint("CENTER", r.frame, "LEFT", center, 0)
-            local abDone = e.abundant and not WeeklyStale(e)
-            r.abundant:SetTexture(abDone and READY_TEX or NOTREADY_TEX)
+            local st = WeeklyStale(e)
+            local abDone = e.abundant and not st
+            -- (04.11, Миша) взял задание, но не сдал — жёлтый «?», а не галка
+            r.abundant:SetTexture(abDone and READY_TEX or ((e.abundantProgress and not st) and WAITING_TEX) or NOTREADY_TEX)
             r.abundant:Show()
         end
     elseif col.key == "weekly" or col.key == "treatise" or col.key == "darkmoon" then
@@ -890,6 +893,12 @@ local function OpenCharsMenu(anchor)
             root:CreateButton("Нет персонажей")
             return
         end
+        -- (04.11, Миша) общий порядок: сначала текущий персонаж, дальше по алфавиту — русские ники, потом латиница
+        local me = UnitGUID and UnitGUID("player")
+        table.sort(list, function(a, b)
+            if (a.guid == me) ~= (b.guid == me) then return a.guid == me end
+            return ByName(a, b)
+        end)
         -- (02.11) Больше 30 персонажей — меню уходило за экран и не листалось.
         -- Показываем 30 строк, дальше полоса прокрутки (стандартная Blizzard,
         -- справа). Высота пункта меню ~20px — так же считает сама Blizzard.

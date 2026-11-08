@@ -998,6 +998,9 @@ local function CreateOptionsWindow()
     -- и кнопка открытия окна «Недельные знания» (Knowledge.lua).
     do
         local y = -profPanel:GetHeight() + 6
+        if ns.ConcCraft and ns.ConcCraft.BuildOptions then
+            y = ns.ConcCraft.BuildOptions(profPanel, y, MakeDropdown)
+        end
 
         -- строка: [галочка трекера] [название] [дропдаун выбора]
         local function ProfRow(toolKey, label, dropWidth, cfgKey, options)
@@ -1125,7 +1128,7 @@ local function CreateOptionsWindow()
             end)
             cb:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Очередь заказов (тест)", 1, 1, 1)
+                GameTooltip:SetText("Очередь заказов", 1, 1, 1)
                 GameTooltip:AddLine("Окно справа от окна профессии: заказы покровителей и кнопка «Дальше» — взять, сделать" ..
                     " и сдать по очереди. Цены — из Auctionator. Выключено — окно само не открывается и кнопки" ..
                     " заказа Blizzard не пропускаются.", 0.8, 0.8, 0.8, true)
@@ -1134,7 +1137,7 @@ local function CreateOptionsWindow()
             cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
             local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             l:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-            l:SetText("Очередь заказов (тест)")
+            l:SetText("Очередь заказов")
             y = y - 28
         end
         ProfFeatureCB("oqAutoOpen", "Окна сами: «Клиент» — очередь заказов, крафт — «Знания и заряды»",
@@ -2271,7 +2274,7 @@ local function CreateOptionsWindow()
 
         -- ── «Очередь заказов» (OrderQueue.lua, тестовый модуль) ──
         y = y - 10
-        Header("Очередь заказов", y, "Тестовая функция")
+        Header("Очередь заказов", y)
         y = y - 30
         local od = testPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         od:SetPoint("TOPLEFT", PAD, y); od:SetPoint("TOPRIGHT", -PAD, y); od:SetJustifyH("LEFT")
@@ -2282,7 +2285,7 @@ local function CreateOptionsWindow()
         -- (02.11) галка «включить» перенесена во вкладку «Профессии» (над «Окна сами»)
         local onote = testPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
         onote:SetPoint("TOPLEFT", PAD, y)
-        onote:SetText("Включается галкой «Очередь заказов (тест)» во вкладке «Профессии».")
+        onote:SetText("Включается галкой «Очередь заказов» во вкладке «Профессии».")
         y = y - 24
 
         -- Пропуск кнопок заказа (как в No Mats No Make). Хранятся в RainonUIOrdersDB.settings.

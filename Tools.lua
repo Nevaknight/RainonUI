@@ -1061,13 +1061,15 @@ ns.RegisterEvent("CALENDAR_UPDATE_EVENT_LIST", function()
 end)
 
 -- Общие недельные объективы (важны для всех профессий, не привязаны к одной).
--- «Abundant Offerings» (89507) — недельный мета-квест Midnight; на первом
--- принятии есть скрытый флаг 94952 — учитываем оба (готово, если любой).
+-- «Abundant Offerings» (89507) — недельный мета-квест Midnight.
+-- (04.11, Миша) Скрытый флаг 94952 ставится уже при ПРИНЯТИИ задания — раньше он считался «сделано»
+-- (галка сразу после взятия квеста — опасная ошибка). Теперь: сделано = сдан 89507;
+-- «в процессе» = задание в журнале или стоит флаг принятия 94952, а 89507 ещё не сдан.
 -- Название берём живьём из игры (локализовано), fallback — англ.
 local GLOBAL_KNOWLEDGE = {
     { fallback = "Abundant Offerings",
       atlas = "questlog-questtypeicon-Recurring",
-      quests = { 89507, 94952 } },
+      quests = { 89507 }, taken = { 94952 } },
 }
 
 local function IsQuestDone(id)
@@ -1152,9 +1154,17 @@ end
 function ns.Tools.GetGlobalKnowledge()
     local out = {}
     for _, g in ipairs(GLOBAL_KNOWLEDGE) do
-        local done = false
+        local done, progress = false, false
         for _, q in ipairs(g.quests) do
             if IsQuestDone(q) then done = true; break end
+        end
+        if not done then
+            for _, q in ipairs(g.quests) do
+                if C_QuestLog and C_QuestLog.IsOnQuest and C_QuestLog.IsOnQuest(q) then progress = true; break end
+            end
+            for _, q in ipairs(g.taken or {}) do
+                if IsQuestDone(q) then progress = true; break end
+            end
         end
         local title
         if C_QuestLog and C_QuestLog.GetTitleForQuestID then
@@ -1163,6 +1173,7 @@ function ns.Tools.GetGlobalKnowledge()
         out[#out + 1] = {
             name = (title and title ~= "" and title) or g.fallback,
             done = done,
+            progress = progress,   -- (04.11) взят, но не сдан
             atlas = g.atlas,
         }
     end

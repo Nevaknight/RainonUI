@@ -18,6 +18,7 @@ externals:
     url: https://repos.wowace.com/wow/libsharedmedia-3-0/trunk/LibSharedMedia-3.0
   Libs/LibEditMode:
     url: https://github.com/p3lim-wow/LibEditMode
+  Libs/LibKeystone: https://github.com/BigWigsMods/LibKeystone.git/LibKeystone
 
 enable-nolib-creation: no
 
@@ -27,3 +28,7 @@ ignore:
   - check.js
   - Архив
   - CharCheck.lua
+  - .claude
+  - .codex
+  - .agents
+  - AGENTS.md

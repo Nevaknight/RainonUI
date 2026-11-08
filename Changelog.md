@@ -1,8 +1,10 @@
 # RainonUI — Changelog
 
-## 1.7.2
+## 1.8.0
 
-* **Shopping list now collects reagents from several crafting tables.** Press "Покупки" (Shopping) at each table — every table adds what its orders still need, and pressing it again at the same table does not double the amounts.
-* **Bought items disappear from the list by themselves.** Buy a reagent at the Auction House (or collect it from the mailbox) and its line shrinks or vanishes, so you never buy the same thing twice. Shift-click "Покупки" to clear the list.
-* **The list is named "!RainonUI — покупки"**, so it is always at the top of Auctionator's shopping lists.
-* Updated for patch 12.1.5.
+* Abundant Offerings now shows an in-progress marker after accepting the quest and a completion check only after turning it in.
+* The character selection menu now lists your current character first, followed by the remaining characters in name order.
+* Concentration crafting provides one craft button per supported recipe, with reagent settings in the Professions tab and individual herb-quality selectors for Bouquet of Herbs.
+* Craft buttons now select available finishing reagents using the same priority as manual crafting. Ingredients without quality are displayed as fixed recipe components.
+* Improved crafting cost, multicraft and bag-loot tracking. Unreliable multicraft and bag statistics restart once, with previous records retained in a backup.
+* Patron orders, shopping lists and the existing addon features remain included.

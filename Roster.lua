@@ -149,6 +149,7 @@ function Roster.ScanCurrent()
     if ns.Tools and ns.Tools.GetGlobalKnowledge then
         local g = ns.Tools.GetGlobalKnowledge()
         e.abundant = (g[1] and g[1].done) or false
+        e.abundantProgress = (g[1] and not g[1].done and g[1].progress) or nil   -- (04.11) взят, не сдан → жёлтый «?»
     end
 
     -- Заряды рецептов алхимии. Снапшот зарядов хранится в аккаунтном ростере и

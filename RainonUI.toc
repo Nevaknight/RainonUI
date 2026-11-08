@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.7.2
+## Version: 1.8.0
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB, RainonUIOrdersDB
 ## OptionalDeps: MythicDungeonTools
@@ -31,7 +31,7 @@ Options.lua
 Tester.lua
 
 # =========================================================================
-# НОВЫЕ / ЭКСПЕРИМЕНТАЛЬНЫЕ МОДУЛИ.
+# ДОПОЛНИТЕЛЬНЫЕ МОДУЛИ ПУБЛИЧНОЙ СБОРКИ.
 # Держим отдельным блоком: при ошибке любой строку можно закомментировать (#),
 # и основной аддон продолжит работать. Загружаются ПОСЛЕ ядра.
 # =========================================================================
@@ -45,6 +45,7 @@ KeyReroll.lua
 TestBar.lua
 DesignLab.lua
 OrderQueue.lua
+ConcCraft.lua
 
 # ЛИЧНОЕ (Миша), НЕ для CurseForge: файла нет ни в git (.gitignore), ни в сборке (.pkgmeta ignore).
 # Строку оставляем: в сборке файла просто нет — игра его пропускает.
