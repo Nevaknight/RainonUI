@@ -126,6 +126,7 @@ ns.defaults = {
         testBarColor = "pink",-- цвет полосы (ключ из TestBar.COLORS)
         -- Вкладка «Тест»: «Очередь заказов» у окна профессии (OrderQueue.lua). ВЫКЛ.
         orderQueue = false,
+        concCraft = true, -- окно «Крафт за концентрацию»
     },
     -- Настройки окна знаний/зарядов
     knowledge = {

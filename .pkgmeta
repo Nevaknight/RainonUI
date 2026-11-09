@@ -27,6 +27,7 @@ ignore:
   - .gitignore
   - check.js
   - Архив
+  - _to_delete
   - CharCheck.lua
   - .claude
   - .codex

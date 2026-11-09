@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.8.0
+## Version: 1.8.1
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB, RainonUIOrdersDB
 ## OptionalDeps: MythicDungeonTools
@@ -17,14 +17,14 @@ Libs\LibKeystone\LibKeystone.lua
 Libs\LibEditMode\embed.xml
 
 Core.lua
-EditMode.lua
+Editmode.lua
 HideUI.lua
 Tools.lua
 Roster.lua
 Knowledge.lua
 Treatise.lua
-GameMenu.lua
-PaladinBuff.lua
+Gamemenu.lua
+Paladinbuff.lua
 Teleport.lua
 Integrations.lua
 Options.lua

@@ -674,7 +674,7 @@ end
 local optionsFrame
 
 -- Выпадающий список на MenuUtil: кнопка показывает текущий выбор, клик
--- открывает меню с радио-опциями. options = { {text=, value=}, ... }.
+-- открывает меню с радио-опциями. options = { {text=, value=, initialize=}, ... }; initialize необязателен.
 local function MakeDropdown(parent, width, get, set, options)
     local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     btn:SetSize(width, 22)
@@ -690,13 +690,14 @@ local function MakeDropdown(parent, width, get, set, options)
         if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
         MenuUtil.CreateContextMenu(btn, function(_, root)
             for _, o in ipairs(options) do
-                root:CreateRadio(o.text,
+                local radio = root:CreateRadio(o.text,
                     function() return get() == o.value end,
                     function()
                         set(o.value)
                         btn:SetText(CurrentText())
                         return MenuResponse and MenuResponse.Close
                     end)
+                if o.initialize then radio:AddInitializer(o.initialize) end
             end
         end)
     end)
@@ -1140,6 +1141,9 @@ local function CreateOptionsWindow()
             l:SetText("Очередь заказов")
             y = y - 28
         end
+        ProfFeatureCB("concCraft", "Крафт за концентрацию",
+            "Открывать окно «Крафт за концентрацию» вместе с профессией.",
+            function() if ns.ConcCraft then ns.ConcCraft.ApplyVisibility() end end)
         ProfFeatureCB("oqAutoOpen", "Окна сами: «Клиент» — очередь заказов, крафт — «Знания и заряды»",
             "Открыл вкладку заказов «Клиент» — справа открывается очередь заказов, окно «Знания и заряды»" ..
             " прячется. Вернулся к крафту — очередь закрывается, «Знания и заряды» возвращается" ..
