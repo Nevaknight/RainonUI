@@ -1208,13 +1208,30 @@ local bagIcon = CreateIconDisplay({ size = 48, x = 0, y = 0,
 AddGlow(bagIcon)
 registry.curr_moxie = bagIcon
 
+function ns.Tools.OpenMoxieMap()
+    -- Лина (243350), Луносвет из Midnight.
+    local point = UiMapPoint.CreateFromCoordinates(2393, 0.4792, 0.5344)
+    if C_Map.SetUserWaypoint(point) then
+        C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+        OpenMapToUserWaypoint()
+    end
+end
+
+do
+    local mapButton = CreateFrame("Button", nil, bagIcon, "UIPanelButtonTemplate")
+    mapButton:SetSize(110, 22)
+    mapButton:SetPoint("LEFT", bagIcon, "RIGHT", 8, 0)
+    mapButton:SetText("Открыть карту")
+    mapButton:SetScript("OnClick", ns.Tools.OpenMoxieMap)
+end
+
 local function ApplyBagPosition()
     PositionDisplay(bagIcon, "curr_moxie")
 end
 CreateMover("curr_moxie", "Купи сумку", 56, 56, ApplyBagPosition)
 
 local function UpdateMoxie()
-    if not enabled("curr_moxie") then
+    if not ns.ProfEnabled() or not enabled("curr_moxie") then
         bagIcon:Deactivate()
         return
     end
@@ -1447,10 +1464,10 @@ registry.alerts = {
 -- =========================================================================
 ns.Tools = ns.Tools or {}
 function ns.Tools.OnToggle(key, state)
-    -- Мастер-выключатель профессий: применяем сразу к баффам и миникарте.
+    -- Мастер-выключатель профессий: обновляем связанные функции.
     if key == "professions_enabled" then
-        UpdateProfBuffs()
-        if ns.Roster and ns.Roster.UpdateMinimap then ns.Roster.UpdateMinimap() end
+        UpdateMoxie()
+        ns.SendMessage("RAINON_PROFESSIONS_TOGGLED")
         return
     end
     -- (02.11) флакон / раскалывание — слоты плашки «Предметы профессии»: и вкл., и выкл. — пересчёт плашки

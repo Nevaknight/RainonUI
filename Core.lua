@@ -44,7 +44,7 @@ ns.defaults = {
         invispotion = true, engcloak = true,
         -- Профессии
         prof_phial = true, prof_essence = true,
-        professions_enabled = false, -- мастер-выключатель всего по профессиям (по умолч. ВЫКЛ)
+        professions_enabled = true, -- модуль профессий
         phialQuality = 241312,      -- itemID выбранного флакона (для клика по иконке)
         shatterEssence = 236952,    -- itemID частицы для раскалывания
         -- Валюта
@@ -101,8 +101,6 @@ ns.defaults = {
         dungeonAnnounceLead    = 5,     -- за сколько секунд до удара показывать (ползунок 1–5)
         dungeonAnnounceSoundOn = true,  -- играть звук на анонсе (галка «Звук анонса»)
         dungeonAnnounceSound   = nil,   -- ИМЯ звука LSM (nil → «RainonUI: Босс (Alice)»)
-        -- Интеграция с CraftSim (нужны CraftSim и Auctionator)
-        craftAHButton = true,    -- кнопка «список покупок CraftSim» на аукционе
         -- Режим «крестики скрытия»: на скрываемых элементах UI показываются
         -- крестики; клик по крестику включает галку скрытия и прячет элемент.
         hideSetupMode = false,
@@ -127,6 +125,7 @@ ns.defaults = {
         -- Вкладка «Тест»: «Очередь заказов» у окна профессии (OrderQueue.lua). ВЫКЛ.
         orderQueue = false,
         concCraft = true, -- окно «Крафт за концентрацию»
+        concCraftBuffs = true, -- баффы перед крафтом за концентрацию
     },
     -- Настройки окна знаний/зарядов
     knowledge = {
@@ -136,7 +135,6 @@ ns.defaults = {
         sort = "name",      -- "name" или "conc"
         autoOpen = false,   -- открывать/закрывать вместе с окном профессии
         minimapAngle = 205,
-        hideMinimap = false,
         columns = {
             prof1 = true, prof2 = true, abundant = true,
             weekly = true, treatise = true, darkmoon = true,
@@ -189,8 +187,7 @@ function ns.InitDB()
     ns.db = db
 end
 
--- Мастер-выключатель всего, что связано с профессиями (баффы крафта,
--- кнопка миникарты, авто-возможности окна знаний/зарядов).
+-- Мастер-выключатель модуля профессий.
 function ns.ProfEnabled()
     return not (ns.db and ns.db.tools and ns.db.tools.professions_enabled == false)
 end

@@ -31,10 +31,10 @@ local READY_TEX    = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOTREADY_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 
 local function TooltipEnabled()
-    return not (ns.db and ns.db.features and ns.db.features.treatiseTooltip == false)
+    return ns.ProfEnabled() and not (ns.db and ns.db.features and ns.db.features.treatiseTooltip == false)
 end
 local function GlowEnabled()
-    return not (ns.db and ns.db.features and ns.db.features.treatiseGlow == false)
+    return ns.ProfEnabled() and not (ns.db and ns.db.features and ns.db.features.treatiseGlow == false)
 end
 
 -- Профессии текущего персонажа (базовые ID). Кэш.
@@ -291,11 +291,11 @@ end
 -- Тикер скана Blizzard-сумок/банка (только когда Баганатор НЕ используется).
 local scanTicker
 local function StartScanLoop()
-    if baganatorReady then return end   -- Баганатор светит через corner-widget
+    if baganatorReady or not GlowEnabled() then return end
     RefreshBank()
     if not scanTicker then
         scanTicker = C_Timer.NewTicker(1, function()
-            if baganatorReady or #ScanRoots() == 0 then
+            if baganatorReady or not GlowEnabled() or #ScanRoots() == 0 then
                 if scanTicker then scanTicker:Cancel(); scanTicker = nil end
                 ClearBankGlows()
                 return
@@ -328,7 +328,7 @@ ns.RegisterEvent("BANKFRAME_CLOSED", function()
     ClearBankGlows()
 end)
 ns.RegisterEvent("BAG_UPDATE_DELAYED", function()
-    if not baganatorReady and #ScanRoots() > 0 then StartScanLoop() end
+    if GlowEnabled() and not baganatorReady and #ScanRoots() > 0 then StartScanLoop() end
 end)
 
 -- =========================================================================
@@ -368,6 +368,7 @@ end
 local qluScheduled = false
 local function OnQuestFlagsMaybeChanged()
     qluScheduled = false
+    if not GlowEnabled() then return end
     local sig = GlowSignature()
     if sig == lastGlowSig then return end
     lastGlowSig = sig
@@ -375,7 +376,7 @@ local function OnQuestFlagsMaybeChanged()
     if not baganatorReady and #ScanRoots() > 0 then RefreshBank() end
 end
 ns.RegisterEvent("QUEST_LOG_UPDATE", function()
-    if qluScheduled then return end
+    if qluScheduled or not GlowEnabled() then return end
     qluScheduled = true
     C_Timer.After(0.3, OnQuestFlagsMaybeChanged)
 end)
@@ -383,6 +384,16 @@ end)
 ns.RegisterMessage("RAINON_REAPPLY", function()
     EnsureBaganator()
     HookBagFrames()
+end)
+
+ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", function()
+    if GlowEnabled() then
+        if #ScanRoots() > 0 then StartScanLoop() end
+    else
+        if scanTicker then scanTicker:Cancel(); scanTicker = nil end
+        ClearBankGlows()
+    end
+    RequestBaganatorRefresh()
 end)
 
 ns.Treatise = { RefreshBank = RefreshBank, RebuildProfs = RebuildProfs }

@@ -266,6 +266,7 @@ local function CreateMinimapButton()
     overlay:SetPoint("TOPLEFT")
 
     b:SetScript("OnClick", function(self, button)
+        if not ns.ProfEnabled() then return end
         local shift = IsShiftKeyDown and IsShiftKeyDown()
         if button == "RightButton" then
             if shift then
@@ -303,6 +304,11 @@ local function CreateMinimapButton()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("RainonUI", 1, 1, 1)
+        if not ns.ProfEnabled() then
+            GameTooltip:AddLine("Модуль профессий отключён. Настройки — /rs.", 1, 1, 1)
+            GameTooltip:Show()
+            return
+        end
         -- Название действия — оранжевым «в стиле лого», описание — белым.
         local function Row(key, desc)
             GameTooltip:AddLine(ns.C(LOGO_HEX, key) .. " — " .. desc, 1, 1, 1)
@@ -322,17 +328,11 @@ local function CreateMinimapButton()
     return b
 end
 
--- Показать/скрыть кнопку миникарты по мастер-флагу и настройке.
+-- Значок остаётся на миникарте, даже когда модуль профессий выключен.
 function Roster.UpdateMinimap()
-    if not ns.db then return end
-    local want = ns.ProfEnabled() and not ns.db.knowledge.hideMinimap
-    if want then
-        if CreateMinimapButton() then
-            UpdatePosition()
-            minimapButton:Show()
-        end
-    elseif minimapButton then
-        minimapButton:Hide()
+    if ns.db and CreateMinimapButton() then
+        UpdatePosition()
+        minimapButton:Show()
     end
 end
 

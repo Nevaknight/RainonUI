@@ -1436,18 +1436,28 @@ ns.RegisterEvent("ACCOUNT_CHARACTER_CURRENCY_DATA_RECEIVED", refreshIfShown)
 ns.RegisterEvent("CURRENCY_DISPLAY_UPDATE", refreshIfShown)
 ns.RegisterMessage("RAINON_REAPPLY", refreshIfShown)
 
--- Открытие/скрытие вместе с окном профессии (по галочке «Открывать с профессией»)
-ns.RegisterEvent("TRADE_SKILL_SHOW", function()
-    if not (ns.db and ns.db.knowledge.autoOpen) then return end
+function Knowledge:OpenWithProfession()
+    if not (ns.ProfEnabled() and ns.db and ns.db.knowledge.autoOpen) then return end
     if not frame or not frame:IsShown() then
-        Knowledge:Open()
-        autoOpened = true
+        self:Open()
+        autoOpened = frame and frame:IsShown() or false
     end
-end)
-ns.RegisterEvent("TRADE_SKILL_CLOSE", function()
+end
+
+local function CloseWithProfession()
     if autoOpened and frame then
         frame:Hide()
         autoOpened = false
+    end
+end
+
+ns.RegisterEvent("TRADE_SKILL_SHOW", function() Knowledge:OpenWithProfession() end)
+ns.RegisterEvent("TRADE_SKILL_CLOSE", CloseWithProfession)
+ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", function()
+    if not ns.ProfEnabled() then
+        CloseWithProfession()
+    elseif ProfessionsFrame and ProfessionsFrame:IsShown() then
+        Knowledge:OpenWithProfession()
     end
 end)
 

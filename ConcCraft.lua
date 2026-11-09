@@ -16,13 +16,13 @@ local _, ns = ...
 -- Рецепты (ID проверены по записям RainonUIOrdersDB.recipes 04.11). gold = ID любого из предметов
 -- слота, который кладём ЗОЛОТЫМ (кач.2); conc = false — рецепт без концентрации (только заряды).
 local RECIPES = {
-    { id = 1230859, name = "Зелье безрассудства", icon = 7548916 },  -- Алхимия, всё обычное
-    { id = 1230892, name = "Букет трав", icon = 612962, conc = false, charges = true },  -- Алхимия, заряды
-    { id = 1230856, name = "Чудесный синергетик", icon = "Interface\\Icons\\spell_animaardenweald_orb", conc = false, charges = true },  -- Алхимия, заряды
-    { id = 1236491, name = "Талассийское масло феникса", icon = 7548987, gold = { 243599 } },  -- ◆ Вечнопоющая пыль, ◇ флакон
-    { id = 1230476, name = "Флакон из солнечного стекла", icon = 7548906, gold = { 242789 } },  -- Ювелирное: ◆ Затемнённый камень
-    { id = 1229853, name = "Духовная звёздочка", icon = 7548996 },  -- Инженерное, всё обычное
-    { id = 1230763, name = "Сплав высокой пробы", icon = 7548919 },  -- Кузнечное, всё обычное
+    { id = 1230859, name = "Зелье безрассудства", icon = 7548916 },
+    { id = 1230892, name = "Букет трав", icon = 612962, conc = false, charges = true },
+    { id = 1230856, name = "Чудесный синергетик", icon = "Interface\\Icons\\spell_animaardenweald_orb", conc = false, charges = true },
+    { id = 1236491, name = "Талассийское масло феникса", icon = 7548987, gold = { 243599 } },
+    { id = 1230476, name = "Флакон из солнечного стекла", icon = 7548906, gold = { 242789 } },
+    { id = 1229853, name = "Духовная звёздочка", icon = 7548996 },
+    { id = 1230763, name = "Сплав высокой пробы", icon = 7548919 },
 }
 
 local REAGENT_BASIC = (Enum and Enum.CraftingReagentType and Enum.CraftingReagentType.Basic) or 1
@@ -166,9 +166,138 @@ end
 -- ── Окно ──────────────────────────────────────────────────────────────────
 local win, rows = nil, {}
 local dismissed = false
+local moving = false
 local ROW_H = 24
 local W = (ns.OrderQueue and ns.OrderQueue.WINDOW_WIDTH) or 400
 local ICON_SIZE, ROW_GAP = 20, 6
+local Buffs = ns.OrderQueue and ns.OrderQueue.ProfessionBuffs
+local buffHolder, buffButtons, missingIcons = nil, {}, {}
+
+local function BuffState(profession)
+    local missing, gate, ready = {}, nil, false
+    if not Buffs or ns.db.features.concCraftBuffs == false then return missing end
+    if not profession then return missing end
+    local ench = profession == Enum.Profession.Enchanting
+    local tools = ns.db.tools
+    for _, def in ipairs(Buffs.DEFS) do
+        if tools[def.key] ~= false and (not def.enchOnly or ench) then
+            if not Buffs.HasBuff(def.spell) then
+                local item = tools[def.cfg]
+                local have = Buffs.BagCount(item) > 0
+                if not have then missing[#missing + 1] = { def = def, item = item } end
+                -- The flask goes first when both buffs are missing.
+                if not gate or not def.enchOnly then
+                    gate, ready = def, have
+                end
+            end
+        end
+    end
+    return missing, gate, ready
+end
+
+-- Separate parent and screen coordinates keep the craft window movable in combat.
+local function SyncBuffButtons()
+    if InCombatLockdown() then return end
+    for i, row in ipairs(rows) do
+        local visible = win:IsVisible() and row:IsShown() and row.buffReady and not moving
+        local x, y
+        if visible then x, y = row.btn:GetCenter() end
+        local button = buffButtons[i]
+        if x and y then
+            if not buffHolder then
+                buffHolder = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+                buffHolder:SetAllPoints(UIParent)
+                buffHolder:SetFrameStrata("HIGH")
+                RegisterStateDriver(buffHolder, "visibility", "[combat] hide; show")
+            end
+            if not button then
+                button = CreateFrame("Button", nil, buffHolder, "SecureActionButtonTemplate")
+                button:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+                button:SetScript("PreClick", function(self)
+                    if InCombatLockdown() then return end
+                    local def
+                    if ns.ProfEnabled() and win:IsVisible() and row:IsVisible() and not moving
+                        and ProfessionsFrame and ProfessionsFrame:IsShown() then
+                        local _, current = BuffState(Buffs.CurrentProfession())
+                        if current == row.buff then def = current end
+                    end
+                    Buffs.SetBagAction(self, def, def and ns.db.tools[def.cfg])
+                end)
+                button:SetScript("OnEnter", function(self)
+                    row.btn:LockHighlight()
+                    row.btn:GetScript("OnEnter")(self)
+                end)
+                local function ReleaseButton()
+                    if row.btn:GetButtonState() == "PUSHED" then
+                        row.btn:SetButtonState("NORMAL", false)
+                    end
+                end
+                button:SetScript("OnMouseDown", function(_, mouseButton)
+                    if mouseButton == "LeftButton" then row.btn:SetButtonState("PUSHED", true) end
+                end)
+                button:SetScript("OnMouseUp", ReleaseButton)
+                local function ClearHover(self)
+                    row.btn:UnlockHighlight()
+                    ReleaseButton()
+                    if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
+                end
+                button:SetScript("OnHide", ClearHover)
+                button:SetScript("OnLeave", ClearHover)
+                buffButtons[i] = button
+            end
+            local scale = row.btn:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            if x ~= button.x or y ~= button.y or scale ~= button.scale then
+                button:ClearAllPoints()
+                button:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x * scale, y * scale)
+                button:SetSize(row.btn:GetWidth() * scale, row.btn:GetHeight() * scale)
+                button.x, button.y, button.scale = x, y, scale
+            end
+            local level = row.btn:GetFrameLevel() + 5
+            if button:GetFrameLevel() ~= level then button:SetFrameLevel(level) end
+            if not button:IsShown() then button:Show() end
+        elseif button and button:IsShown() then
+            button:Hide()
+        end
+    end
+end
+
+local function ShowMissingIcons(missing)
+    for i, entry in ipairs(missing) do
+        local icon = missingIcons[i]
+        if not icon then
+            icon = CreateFrame("Frame", nil, win)
+            icon:SetSize(ICON_SIZE, ICON_SIZE)
+            icon:SetPoint("TOPRIGHT", win, "TOPLEFT", -8, -26 - (i - 1) * 34)
+            icon.texture = icon:CreateTexture(nil, "ARTWORK")
+            icon.texture:SetAllPoints()
+            Buffs.Glow(icon)
+            icon:EnableMouse(true)
+            icon:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                GameTooltip:SetText(self.entry.def.title)
+                local item = self.entry.item
+                local name = item and C_Item.GetItemNameByID(item)
+                if name then GameTooltip:AddLine(name, 1, 1, 1) end
+                GameTooltip:AddLine("Выбранного предмета нет в сумках.", 1, 0.4, 0.4)
+                GameTooltip:Show()
+            end)
+            icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            missingIcons[i] = icon
+        end
+        icon.entry = entry
+        icon.texture:SetTexture((entry.item and C_Item.GetItemIconByID(entry.item)) or entry.def.fallback)
+        if not icon:IsShown() or not icon.glowing then
+            icon:Show()
+            icon:SetGlow(true)
+            icon.glowing = true
+        end
+    end
+    for i = #missing + 1, #missingIcons do
+        missingIcons[i]:SetGlow(false)
+        missingIcons[i].glowing = false
+        missingIcons[i]:Hide()
+    end
+end
 
 local function OutputIcon(recipe)
     local ok, item = pcall(C_TradeSkillUI.GetRecipeOutputItemData, recipe.id)
@@ -183,6 +312,10 @@ end
 local Refresh
 local function Craft(r)
     if InCombatLockdown and InCombatLockdown() then return end
+    if not (ns.ProfEnabled() and ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
+    local profession = Buffs and Buffs.CurrentProfession()
+    local _, gate = BuffState(profession)
+    if gate then Refresh(); return end
     local res = Check(r)
     if not res then return end
     if res.n <= 0 then ns.Print(C("71d5ff", r.name) .. ": " .. C("ff6060", res.why or "сейчас нельзя")); return end
@@ -206,10 +339,10 @@ local function Build()
     win:SetFrameStrata("HIGH")
     win:SetClampedToScreen(true)
     win:SetMovable(true); win:EnableMouse(true); win:RegisterForDrag("LeftButton")
-    local moving = false
     win:SetScript("OnDragStart", function(self)
         if DBc().locked then return end
         moving = true
+        SyncBuffButtons()
         self:StartMoving()
     end)
     win:SetScript("OnDragStop", function(self)
@@ -217,6 +350,7 @@ local function Build()
         moving = false
         self:StopMovingOrSizing()
         SavePos()
+        SyncBuffButtons()
     end)
     win:SetTitle("Крафт за концентрацию")
     local pos = DBc().pos
@@ -283,12 +417,26 @@ local function Build()
 
     local title = win.TitleContainer.TitleText
     title:ClearAllPoints()
-    local borderInset = 7 -- Left inset of ButtonFrameTemplate without a portrait.
-    title:SetPoint("LEFT", win, "TOPLEFT", borderInset + headerGap, -close:GetHeight() / 2)
-    title:SetPoint("RIGHT", lock, "LEFT", -headerGap, 0)
-    title:SetJustifyH("LEFT")
+    -- Blizzard's title bar starts one pixel below the top of the frame.
+    title:SetPoint("CENTER", win, "TOP", 0, -1 - win.TitleContainer:GetHeight() / 2)
+    title:SetJustifyH("CENTER")
     win.empty = win:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     win.empty:SetPoint("TOPLEFT", 12, -32)
+    win:HookScript("OnHide", function()
+        if moving then
+            moving = false
+            win:StopMovingOrSizing()
+            SavePos()
+        end
+        SyncBuffButtons()
+    end)
+    local elapsed = 0
+    win:SetScript("OnUpdate", function(_, dt)
+        elapsed = elapsed + dt
+        if elapsed < 0.1 then return end
+        elapsed = 0
+        SyncBuffButtons()
+    end)
     win:Hide()
 end
 
@@ -312,6 +460,13 @@ local function Row(i)
     r.info:SetPoint("RIGHT", 0, 0)
     r.btn:SetScript("OnClick", function() if r.recipe then Craft(r.recipe) end end)
     r.btn:SetScript("OnEnter", function(self)
+        if r.buff then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(r.buff.title, 1, 1, 1)
+            GameTooltip:AddLine(r.buffReady and "Нажми, чтобы применить бафф." or "Выбранного предмета нет в сумках.", 1, 0.82, 0)
+            GameTooltip:Show()
+            return
+        end
         local res = r.res
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(r.recipe.name, 1, 1, 1)
@@ -327,54 +482,82 @@ local function Row(i)
     return r
 end
 
+local function UpdateRow(row, recipe, res, gate, ready)
+    local enabled = gate and ready or (not gate and res.n > 0)
+    if row.recipe ~= recipe then row.icon:SetTexture(OutputIcon(recipe)) end
+    row.recipe, row.res, row.buff, row.buffReady = recipe, res, gate, gate and ready
+    local name = recipe.name
+    row.icon:SetDesaturated(not enabled)
+    row.name:SetText(enabled and name or C("808080", name))
+    row.info:SetText(enabled and res.n > 0 and C("1eff00", "×" .. res.n) or C("808080", "×0"))
+    row.btn:SetText(gate and "Бафф" or "Крафт")
+    -- Only the separate secure button can receive a buff click.
+    row.btn:SetEnabled(enabled and true or false)
+    row:Show()
+end
+
+local auraWatcher = CreateFrame("Frame")
 Refresh = function()
-    if not win or not win:IsShown() then return end
+    if not ns.db or not ns.ProfEnabled() or ns.db.features.concCraft == false or dismissed
+        or not (ProfessionsFrame and ProfessionsFrame:IsShown()) then
+        auraWatcher:UnregisterEvent("UNIT_AURA")
+        if win then
+            win:Hide()
+            SyncBuffButtons()
+        end
+        return
+    end
+    if not auraWatcher:IsEventRegistered("UNIT_AURA") then
+        auraWatcher:RegisterUnitEvent("UNIT_AURA", "player")
+    end
+    local profession = Buffs and Buffs.CurrentProfession()
+    local missing, gate, ready = BuffState(profession)
     local n = 0
     for _, rec in ipairs(RECIPES) do
         local res = Check(rec)
         if res then
+            if not win then Build() end
             n = n + 1
-            local r = Row(n)
-            if r.recipe ~= rec then r.icon:SetTexture(OutputIcon(rec)) end
-            r.recipe, r.res = rec, res
-            r.name:SetText(res.n > 0 and rec.name or C("808080", rec.name))
-            r.info:SetText(res.n > 0 and C("1eff00", "×" .. res.n) or C("808080", "×0"))
-            r.btn:SetEnabled(res.n > 0)
-            r:Show()
+            UpdateRow(Row(n), rec, res, gate, ready)
         end
     end
-    for i = n + 1, #rows do rows[i]:Hide() end
-    if n == 0 then win.empty:SetText("У этой профессии рецептов из списка нет"); win.empty:Show() else win.empty:Hide() end
-    win:SetHeight(36 + math.max(1, n) * ROW_H)
-end
-
-local function Show()
-    if not ns.db or ns.db.features.concCraft == false or dismissed
-        or not (ProfessionsFrame and ProfessionsFrame:IsShown()) then
-        if win then win:Hide() end
+    if n == 0 and #missing == 0 then
+        if win then
+            win:Hide()
+            SyncBuffButtons()
+        end
         return
     end
     if not win then Build() end
-    -- окно — только если у открытой профессии есть рецепт из списка
-    local any = false
-    for _, rec in ipairs(RECIPES) do
-        local info = C_TradeSkillUI.GetRecipeInfo and C_TradeSkillUI.GetRecipeInfo(rec.id)
-        if info and info.learned then any = true; break end
-    end
-    if not any then win:Hide(); return end
+    for i = n + 1, #rows do rows[i]:Hide() end
+    win.empty:SetText("У этой профессии рецептов из списка нет")
+    win.empty:SetShown(n == 0)
+    ShowMissingIcons(missing)
+    win:SetClampRectInsets(#missing > 0 and -36 or 0, 0, 0, 0)
+    win:SetHeight(math.max(36 + math.max(1, n) * ROW_H, #missing == 2 and 86 or 0))
     win:Show()
-    Refresh()
+    SyncBuffButtons()
 end
 
 ns.RegisterEvent("TRADE_SKILL_SHOW", function()
     dismissed = false
-    C_Timer.After(0.3, Show)
+    C_Timer.After(0.3, Refresh)
 end)
-ns.RegisterEvent("TRADE_SKILL_LIST_UPDATE", function() if win and win:IsShown() then Refresh() elseif ProfessionsFrame and ProfessionsFrame:IsShown() then Show() end end)
-ns.RegisterEvent("TRADE_SKILL_CLOSE", function() if win then win:Hide() end end)
-for _, e in ipairs({ "BAG_UPDATE_DELAYED", "CURRENCY_DISPLAY_UPDATE", "TRADE_SKILL_ITEM_CRAFTED_RESULT" }) do
-    ns.RegisterEvent(e, function() if win and win:IsShown() then Refresh() end end)
+ns.RegisterEvent("TRADE_SKILL_CLOSE", function()
+    auraWatcher:UnregisterEvent("UNIT_AURA")
+    if win then win:Hide() end
+end)
+for _, e in ipairs({ "TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED", "BAG_UPDATE_DELAYED",
+    "CURRENCY_DISPLAY_UPDATE", "TRADE_SKILL_ITEM_CRAFTED_RESULT", "PLAYER_REGEN_ENABLED" }) do
+    ns.RegisterEvent(e, Refresh)
 end
+ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", Refresh)
+local auraQueued = false
+auraWatcher:SetScript("OnEvent", function()
+    if auraQueued or not (ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
+    auraQueued = true
+    C_Timer.After(0.1, function() auraQueued = false; Refresh() end)
+end)
 
 ns.ConcCraft = {
     RECIPES = RECIPES,
@@ -382,7 +565,7 @@ ns.ConcCraft = {
     Refresh = function() Refresh() end,
     ApplyVisibility = function()
         dismissed = false
-        Show()
+        Refresh()
     end,
 }
 
@@ -411,20 +594,12 @@ local function ItemLabel(id)
     local name = C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
     return name or (RainonUIOrdersDB and RainonUIOrdersDB.names and RainonUIOrdersDB.names[id]) or ("Предмет " .. id)
 end
-function ns.ConcCraft.BuildOptions(parent, y, dropdown)
-    local title = parent:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-    title:SetPoint("TOPLEFT",12,y)
-    title:SetText(C("FFD100","Крафт за концентрацию"))
-    y = y - 28
-    local hint = parent:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT",12,y); hint:SetWidth(572); hint:SetJustifyH("LEFT")
-    hint:SetText("Кнопка «Крафт» использует выбранное здесь качество реагентов.")
-    y = y - 24
+local function QualityOptions(values)
     local qualityOptions = {}
     for quality, label in ipairs({ "Обычное", "Золотое" }) do
         qualityOptions[quality] = {
             text = CreateAtlasMarkup(QUALITY_ATLAS .. quality, 16, 16),
-            value = quality,
+            value = values and values[quality] or quality,
             initialize = function(row)
                 local text = row:AttachFontString()
                 text:SetFontObject(row.fontString:GetFontObject())
@@ -440,25 +615,98 @@ function ns.ConcCraft.BuildOptions(parent, y, dropdown)
             end,
         }
     end
+    return qualityOptions
+end
+
+local function ItemBox(parent, width, dropdown, get, set, options, withCount)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetSize(width, 24)
+    local bg = box:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.11, 0.11, 0.11, 0.85)
+    box.dropdown = dropdown(box, 44, get, set, options)
+    box.dropdown:SetPoint("LEFT", 2, 0)
+    box.icon = box:CreateTexture(nil, "ARTWORK")
+    box.icon:SetSize(20, 20)
+    box.icon:SetPoint("LEFT", box.dropdown, "RIGHT", 6, 0)
+    box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    box.label:SetPoint("LEFT", box.icon, "RIGHT", 6, 0)
+    box.label:SetJustifyH("LEFT")
+    box.label:SetWordWrap(false)
+    box.label:SetMaxLines(1)
+    if withCount then
+        local separator = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        separator:SetPoint("LEFT", box, "RIGHT", -46, 0)
+        separator:SetText("·")
+        box.label:SetPoint("RIGHT", separator, "LEFT", -4, 0)
+        box.count = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        box.count:SetPoint("LEFT", separator, "RIGHT", 5, 0)
+    else
+        box.label:SetPoint("RIGHT", -6, 0)
+    end
+    return box
+end
+
+function ns.ConcCraft.BuildPhialOption(parent, anchor, dropdown, onChange)
+    local function GetItem() return ns.db.tools.phialQuality end
+    local box
+    local function UpdateIcon()
+        box.icon:SetTexture(C_Item.GetItemIconByID(GetItem()) or 134756)
+    end
+    box = ItemBox(parent, 405, dropdown, GetItem, function(item)
+        ns.db.tools.phialQuality = item
+        UpdateIcon()
+        onChange()
+    end, QualityOptions({ 241313, 241312 }))
+    box:SetPoint("LEFT", anchor, "RIGHT", 4, 0)
+    box.label:SetText("Харанирский флакон изобретательности")
+    UpdateIcon()
+end
+
+function ns.ConcCraft.BuildOptions(parent, dropdown, makeSpoilerBar)
+    local y = 0
+    local hint = parent:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+    hint:SetPoint("TOPLEFT",12,y); hint:SetWidth(572); hint:SetJustifyH("LEFT")
+    hint:SetText("Окно «Крафт за концентрацию» использует выбранные реагенты из настроек текущего раздела.")
+    y = y - math.max(24, math.ceil(hint:GetStringHeight()) + 8)
+    local qualityOptions = QualityOptions()
     local updates = {}
+    local previousRow
     for _, rec in ipairs(RECIPES) do
         local recipe = rec
         local row = CreateFrame("Frame",nil,parent)
-        row:SetSize(572,116); row:SetPoint("TOPLEFT",12,y)
-        local icon = row:CreateTexture(nil,"ARTWORK"); icon:SetSize(24,24); icon:SetPoint("TOPLEFT")
-        icon:SetTexture(recipe.icon)
-        local name = row:CreateFontString(nil,"OVERLAY","GameFontNormal")
-        name:SetPoint("LEFT",icon,"RIGHT",6,0); name:SetWidth(540); name:SetJustifyH("LEFT"); name:SetWordWrap(false)
-        name:SetText(recipe.name .. (recipe.charges and recipe.conc == false and " — по зарядам, без концентрации" or ""))
+        row:SetWidth(572)
+        if previousRow then
+            row:SetPoint("TOPLEFT", previousRow, "BOTTOMLEFT", 0, -8)
+        else
+            row:SetPoint("TOPLEFT", 12, y)
+        end
+        previousRow = row
+        local title = recipe.name .. (recipe.charges and recipe.conc == false and " — по зарядам, без концентрации" or "")
+        local bar, updateGlyph = makeSpoilerBar(row, title, recipe.icon, 32)
+        bar:SetPoint("TOPLEFT", -4, 0)
+        bar:SetPoint("TOPRIGHT", 4, 0)
+        local body = CreateFrame("Frame", nil, row)
+        body:SetSize(572, 86)
+        body:SetPoint("TOPLEFT", 0, -bar:GetHeight() - 6)
+        body:Hide()
+        local closedHeight = bar:GetHeight()
+        local expandedHeight = closedHeight + 6 + body:GetHeight()
+        row:SetHeight(closedHeight)
+        updateGlyph(true)
+        bar:SetScript("OnClick", function()
+            local expanded = not body:IsShown()
+            local oldHeight = row:GetHeight()
+            row:SetHeight(expanded and expandedHeight or closedHeight)
+            body:SetShown(expanded)
+            updateGlyph(not expanded)
+            parent:SetHeight(parent:GetHeight() + row:GetHeight() - oldHeight)
+        end)
         local slots, cells = {}, {}
         local Render
-        local yy = -30
         for i = 1, 6 do
             local slotIndex = i
-            local cell = CreateFrame("Frame", nil, row)
-            cell:SetSize(280, 24)
-            cell:SetPoint("TOPLEFT", ((i - 1) % 2) * 292, yy - math.floor((i - 1) / 2) * 26)
-            local dd = dropdown(cell, 44,
+            local cell = ItemBox(body, 280, dropdown,
                 function()
                     local slot = slots[slotIndex]
                     return slot and SelectedQuality(recipe, slot) or 1
@@ -469,17 +717,9 @@ function ns.ConcCraft.BuildOptions(parent, y, dropdown)
                     SaveQuality(recipe, slot, quality)
                     Render()
                     Refresh()
-                end, qualityOptions)
-            dd:SetPoint("LEFT")
-
-            local itemIcon = cell:CreateTexture(nil, "ARTWORK")
-            itemIcon:SetSize(20, 20)
-            local label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            label:SetPoint("LEFT", itemIcon, "RIGHT", 6, 0)
-            label:SetPoint("RIGHT", -2, 0)
-            label:SetJustifyH("LEFT")
-            label:SetWordWrap(false)
-            cells[i] = { frame = cell, label = label, icon = itemIcon, dropdown = dd }
+                end, qualityOptions, true)
+            cell:SetPoint("TOPLEFT", ((i - 1) % 2) * 292, -math.floor((i - 1) / 2) * 26)
+            cells[i] = cell
 
             cell:EnableMouse(true)
             cell:SetScript("OnEnter", function(self)
@@ -496,27 +736,30 @@ function ns.ConcCraft.BuildOptions(parent, y, dropdown)
             end)
             cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
         end
-        local empty = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        empty:SetPoint("TOPLEFT", 2, yy)
+        local empty = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        empty:SetPoint("TOPLEFT", 2, 0)
         empty:SetText("Открой эту профессию, чтобы загрузить состав реагентов.")
         Render = function()
             for i, cell in ipairs(cells) do
                 local slot = slots[i]
-                cell.frame:SetShown(slot ~= nil)
+                cell:SetShown(slot ~= nil)
                 if slot then
                     local hasQuality = HasQuality(slot)
                     local id = slot.ids[1]
-                    cell.dropdown:SetShown(hasQuality)
+                    cell.dropdown:SetEnabled(hasQuality)
                     if hasQuality then
                         local quality = SelectedQuality(recipe, slot)
                         id = ItemForQuality(slot, quality) or id
                         cell.dropdown:SetText(qualityOptions[quality].text)
+                    else
+                        cell.dropdown:SetText("")
                     end
                     cell.itemID = id
-                    cell.icon:ClearAllPoints()
-                    cell.icon:SetPoint("LEFT", hasQuality and 50 or 2, 0)
                     cell.icon:SetTexture(C_Item.GetItemIconByID(id) or 134400)
-                    cell.label:SetText(ItemLabel(id) .. " ×" .. slot.qty)
+                    local name = ItemLabel(id)
+                    local shorten = ns.OrderQueue and ns.OrderQueue.ShortItemName
+                    cell.label:SetText(shorten and shorten(name, 17) or name)
+                    cell.count:SetText(tostring(slot.qty))
                 end
             end
             empty:SetShown(#slots == 0)
@@ -531,9 +774,10 @@ function ns.ConcCraft.BuildOptions(parent, y, dropdown)
     end
     parent:HookScript("OnShow",function() for _,fn in ipairs(updates) do fn() end end)
     ns.RegisterEvent("TRADE_SKILL_LIST_UPDATE",function()
+        if not ns.ProfEnabled() then return end
         for _,r in ipairs(RECIPES) do Slots(r) end
-        if parent:IsShown() then for _,fn in ipairs(updates) do fn() end end
+        if parent:IsVisible() then for _,fn in ipairs(updates) do fn() end end
     end)
-    return y - 8
+    parent:SetHeight(-y + 8)
 end
 end

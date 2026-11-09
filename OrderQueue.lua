@@ -108,7 +108,7 @@ local function DB()
 end
 
 local function Enabled()
-    return ns.db and ns.db.features and ns.db.features.orderQueue and true or false
+    return ns.ProfEnabled() and ns.db and ns.db.features and ns.db.features.orderQueue and true or false
 end
 
 local function IsSecret(v) return issecretvalue and issecretvalue(v) or false end
@@ -443,6 +443,7 @@ end
 -- хватает и доплата за заказ не больше settings.ownSwap — кладём своё лучшее.
 -- Лучшее качество реагента только поднимает навык, поэтому качество результата не упадёт.
 local function UseOwnBetter(m)
+    if not ns.ProfEnabled() then return end
     local limit = DB().settings.ownSwap or 0
     if limit <= 0 then return end
     m.swapped = nil
@@ -1257,7 +1258,7 @@ local function OnManualCraft(recipeID, amount, reagents, _, orderID, concentrati
         local out = okS and type(sch) == "table" and Num(sch.outputItemID)
         if not out or out == 0 then return end
     end
-    local remember = DB().settings.remember
+    local remember = ns.ProfEnabled() and DB().settings.remember
     if remember then RememberManual(recipeID, reagents, concentrating, orderID) end
     if not (remember or e) or current then return end
     local sup = e and e.supplied or {}
@@ -1624,16 +1625,18 @@ local function LogTooltip(self)
 end
 
 -- (02.11) Сократить название до NAME_MAX букв (UTF-8): одинаковая длина — ровная колонка.
-local function Short(text)
+local function Short(text, limit)
     if type(text) ~= "string" then return text end
+    limit = limit or NAME_MAX
     local n, cut = 0, nil
     for pos in text:gmatch("()[^\128-\191]") do
         n = n + 1
-        if n == NAME_MAX then cut = pos end
-        if n > NAME_MAX then return (text:sub(1, cut - 1):gsub("%s+$", "")) .. "…" end
+        if n == limit then cut = pos end
+        if n > limit then return (text:sub(1, cut - 1):gsub("%s+$", "")) .. "…" end
     end
     return text
 end
+OQ.ShortItemName = Short
 
 -- (02.11) Шрифт строк: как GameFontHighlightSmall, но на FONT_ADD крупнее.
 local rowFont
@@ -2342,6 +2345,9 @@ local function HookProfessions()
     -- Окно очереди живёт во вкладке «Patron» (заказы покровителей); там же прячем
     -- «Знания и заряды» и возвращаем его, когда уходим из вкладки.
     local inPatron, knowHidden, acc = false, false, 0
+    ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", function()
+        inPatron, knowHidden = false, false
+    end)
     -- Вкладка «Patron»: обычная страница заказов Blizzard ИЛИ её копия от No Mats No Make
     -- (OrdersPageOffline — когда стол заказов далеко).
     local function IsPatronTab()
@@ -2402,12 +2408,14 @@ local function HookProfessions()
             OQ.Hide()
             -- (02.11) вкладка крафта → «Знания и заряды»: вернуть, если прятали мы,
             -- или открыть, если включено «Открывать с профессией»
-            if knowHidden or (ns.db and ns.db.knowledge and ns.db.knowledge.autoOpen) then
-                knowHidden = false
-                if k and not k:IsShown() then
+            if k and not k:IsShown() then
+                if knowHidden then
                     if ns.Knowledge and ns.Knowledge.Open then ns.Knowledge:Open() else k:Show() end
+                elseif ns.Knowledge then
+                    ns.Knowledge:OpenWithProfession()
                 end
             end
+            knowHidden = false
         end
     end)
     ProfessionsFrame:HookScript("OnHide", function()
@@ -3447,21 +3455,47 @@ local BUFF_DEFS = {
 }
 local buffHolder, buffBtns = nil, {}
 
-local function IsEnchanting()
+local function CurrentProfession()
     local ok, res = pcall(function()
         local info = C_TradeSkillUI.GetChildProfessionInfo and C_TradeSkillUI.GetChildProfessionInfo()
         if (not info or not info.profession) and C_TradeSkillUI.GetBaseProfessionInfo then
             info = C_TradeSkillUI.GetBaseProfessionInfo()
         end
-        return info and info.profession and Enum and Enum.Profession and info.profession == Enum.Profession.Enchanting
+        return info and Num(info.profession)
     end)
-    return ok and res and true or false
+    return ok and res or nil
 end
 
 local function HasBuff(spell)
     local a = ns.GetPlayerAura and ns.GetPlayerAura(spell)
-    if a == nil or IsSecret(a) then return false end
+    if IsSecret(a) or a == nil then return false end
     return true
+end
+
+local function BagCount(item)
+    return item and Num(C_Item.GetItemCount(item, false, false, false, false)) or 0
+end
+
+-- Resolve the configured item again on click and target its exact bag slot.
+local function SetBagAction(button, def, item)
+    button:SetAttribute("type", nil)
+    if not (def and item) then return end
+    local lastBag = NUM_TOTAL_EQUIPPED_BAG_SLOTS or Enum.BagIndex.ReagentBag
+    for bag = 0, lastBag do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            if Num(C_Container.GetContainerItemID(bag, slot)) == item then
+                local location = bag .. " " .. slot
+                if def.enchOnly then
+                    button:SetAttribute("macrotext", "/run C_TradeSkillUI.CraftRecipe(" .. SHATTER_RECIPE .. ")\n/use " .. location)
+                    button:SetAttribute("type", "macro")
+                else
+                    button:SetAttribute("item", location)
+                    button:SetAttribute("type", "item")
+                end
+                return
+            end
+        end
+    end
 end
 
 local function BuffTip(slot, owner)
@@ -3484,7 +3518,7 @@ local function SlotGlow(b)
     local glow = b:CreateTexture(nil, "OVERLAY", nil, 7)
     glow:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
     glow:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
-    local pad = ICON * 0.28
+    local pad = b:GetWidth() * 0.28
     glow:SetPoint("TOPLEFT", -pad, pad)
     glow:SetPoint("BOTTOMRIGHT", pad, -pad)
     local ag = glow:CreateAnimationGroup()
@@ -3509,7 +3543,15 @@ local function MakeBuffButtons()
         local sb = CreateFrame("Button", "RainonUIBuffBtn" .. i, buffHolder, "SecureActionButtonTemplate")
         sb:SetFrameStrata("HIGH")
         sb:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
-        sb:SetAttribute("type", def.key == "prof_phial" and "item" or "macro")
+        sb:SetScript("PreClick", function(self)
+            if InCombatLockdown() then return end
+            local slot = self.slot
+            local tools = ns.db.tools
+            local active = ns.ProfEnabled() and slot and slot:IsVisible() and ProfessionsFrame and ProfessionsFrame:IsShown()
+                and tools[def.key] ~= false and not HasBuff(def.spell)
+                and (not def.enchOnly or CurrentProfession() == Enum.Profession.Enchanting)
+            SetBagAction(self, active and def, tools[def.cfg])
+        end)
         local hl = sb:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.2)
         sb:SetScript("OnEnter", function(self) if self.slot then BuffTip(self.slot, self) end end)
@@ -3525,19 +3567,13 @@ local function SyncBuffButtons()
     BF.pending = false
     MakeBuffButtons()
     local f = itemPanel
-    for i, def in ipairs(BUFF_DEFS) do
+    for i in ipairs(BUFF_DEFS) do
         local sb = buffBtns[i]
         local b = f and f.buffs and f.buffs[i]
         if sb then
             local x, y
-            if b and f:IsVisible() and b:IsShown() and b.need and not f.dragging then x, y = b:GetCenter() end
+            if b and f:IsVisible() and b:IsShown() and b.need and b.have > 0 and not f.dragging then x, y = b:GetCenter() end
             if x and y then
-                local item = ns.db and ns.db.tools and ns.db.tools[def.cfg]
-                if def.key == "prof_phial" then
-                    if item then sb:SetAttribute("item", "item:" .. item) end
-                elseif item then
-                    sb:SetAttribute("macrotext", "/run C_TradeSkillUI.CraftRecipe(" .. SHATTER_RECIPE .. ")\n/use item:" .. item)
-                end
                 local sc = b:GetEffectiveScale() / UIParent:GetEffectiveScale()
                 sb:ClearAllPoints()
                 sb:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x * sc, y * sc)
@@ -3553,7 +3589,9 @@ local function SyncBuffButtons()
     end
 end
 BF.DEFS, BF.Glow, BF.Tip, BF.Sync = BUFF_DEFS, SlotGlow, BuffTip, SyncBuffButtons
-BF.IsEnchanting, BF.HasBuff, BF.btns = IsEnchanting, HasBuff, buffBtns
+BF.CurrentProfession, BF.HasBuff, BF.btns = CurrentProfession, HasBuff, buffBtns
+BF.BagCount, BF.SetBagAction = BagCount, SetBagAction
+OQ.ProfessionBuffs = BF
 end
 
 local function BuildItemPanel()
@@ -3609,7 +3647,7 @@ local function BuildItemPanel()
         if InCombatLockdown() or f.dragging then return end
         for i, sb in ipairs(BF.btns) do
             local b = f.buffs[i]
-            local want = b and b:IsShown() and b.need
+            local want = b and b:IsShown() and b.need and b.have > 0
             if want ~= (sb:IsShown() and true or false) then BF.Sync(); return end
             if want then
                 local x, y = b:GetCenter()
@@ -3630,8 +3668,8 @@ function BF.OnCraftTab()
     return cp and cp:IsShown() and true or false
 end
 local function UpdateItemPanel()
-    if not ProfessionsFrame or not ProfessionsFrame:IsShown() then return end
-    if (ns.db and ns.db.features and ns.db.features.profItemsPanel == false) or not BF.OnCraftTab() then
+    if not ns.ProfEnabled() or not (ProfessionsFrame and ProfessionsFrame:IsShown())
+        or (ns.db and ns.db.features and ns.db.features.profItemsPanel == false) or not BF.OnCraftTab() then
         if itemPanel then itemPanel:Hide() end
         return
     end
@@ -3642,16 +3680,16 @@ local function UpdateItemPanel()
     if feat and not feat.profLockReset1102 then feat.profPanelsLock = false; feat.profLockReset1102 = true end
     local order = {}
     local tools = ns.db and ns.db.tools or {}
-    local ench = BF.IsEnchanting()
+    local ench = BF.CurrentProfession() == Enum.Profession.Enchanting
     for i, def in ipairs(BF.DEFS) do
         local b = f.buffs[i]
-        local show = ns.ProfEnabled() and tools[def.key] ~= false and (not def.enchOnly or ench)
+        local show = tools[def.key] ~= false and (not def.enchOnly or ench)
         b:SetShown(show and true or false)
         if show then
             order[#order + 1] = b
             b.icon:SetTexture((ns.GetSpellTexture and ns.GetSpellTexture(def.spell)) or def.fallback)
             local item = tools[def.cfg]
-            local n = (item and C_Item and C_Item.GetItemCount and Num(C_Item.GetItemCount(item))) or 0
+            local n = BF.BagCount(item)
             b.have = n
             b.count:SetText(tostring(n))
             if n == 0 then b.count:SetTextColor(1, 0.25, 0.25) else b.count:SetTextColor(1, 1, 1) end
@@ -3737,6 +3775,7 @@ local DEFAULT_FINISH_RECIPE = 1230859            -- Зелье безрассу�
 local finishHooked = false
 
 local function FinishRecipe()
+    if not ns.ProfEnabled() then return end
     local v = DB().settings.finishRecipe
     if v == nil then return DEFAULT_FINISH_RECIPE end
     return (v ~= 0) and v or nil
@@ -3835,10 +3874,15 @@ function OQ.UpdateProfPanels()
     pcall(UpdateAuctLine)
 end
 ns.RegisterEvent("TRADE_SKILL_SHOW", function() C_Timer.After(0.2, OQ.UpdateProfPanels) end)
+ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", function()
+    if not ns.ProfEnabled() and not OQ.manualOpen then OQ.Hide() end
+    OQ.UpdateProfPanels()
+end)
 -- количество предметов меняется (собрал части, получил награду) — обновляем, только если плашка видна
 -- (02.11) бафф флакона/раскалывания появился или кончился — пересчитать слоты (пока плашка видна)
 ns.RegisterEvent("UNIT_AURA", function(unit)
     if unit ~= "player" or BF.auraQ or not (itemPanel and itemPanel:IsVisible()) then return end
+    if not (ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
     BF.auraQ = true
     C_Timer.After(0.3, function() BF.auraQ = false; if itemPanel and itemPanel:IsVisible() then pcall(UpdateItemPanel) end end)
 end)

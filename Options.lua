@@ -183,10 +183,7 @@ local TOOLS_OPTIONS = {
 }
 
 local PROF_OPTIONS = {
-    { key = "professions_enabled", name = "Профессии — включить всё",
-      desc = "Главный выключатель всего по профессиям: напоминания о баффах" ..
-             " крафта, кнопка миникарты и окно недельных знаний/зарядов." },
-    { header = "Баффы крафта" },
+    { header = "Крафт за концентрацию" },
 }
 
 -- Текст-справка по Moxie (перенесён из бывшей вкладки «Валюта»).
@@ -857,6 +854,61 @@ local function MakeArrowSelector(parent, width, get, set, options, onPreview, he
     return holder
 end
 
+-- Плашка-спойлер как в «Скриптах» (атласы заголовков журнала заданий
+-- Blizzard: 3-слайс Options_ListExpand_* + правый край = зеркало левого,
+-- чтобы убрать вшитый значок; глиф common-button-list-plus/minus).
+-- iconID — опц. иконка слева внутри бара; height — опц. высота бара.
+-- Возвращает (frame, Update(collapsed)) для смены +/−.
+local function MakeSpoilerBar(parent, title, iconID, height)
+    local hb = CreateFrame("Button", nil, parent)
+    local left = hb:CreateTexture(nil, "BACKGROUND")
+    left:SetAtlas("Options_ListExpand_Left", true)
+    local barH = height or left:GetHeight()
+    if not barH or barH < 1 then barH = 24 end
+    hb:SetHeight(barH)
+    left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT")
+    local right = hb:CreateTexture(nil, "BACKGROUND")
+    right:SetAtlas("Options_ListExpand_Left", true)
+    local a, b, c, d, e, f, g, h = right:GetTexCoord()
+    right:SetTexCoord(e, f, g, h, a, b, c, d)
+    right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT")
+    local mid = hb:CreateTexture(nil, "BACKGROUND")
+    mid:SetAtlas("_Options_ListExpand_Middle", false)
+    mid:SetPoint("TOPLEFT", left, "TOPRIGHT"); mid:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+    local hlL = hb:CreateTexture(nil, "HIGHLIGHT")
+    hlL:SetAtlas("Options_ListExpand_Left", true)
+    hlL:SetPoint("TOPLEFT"); hlL:SetPoint("BOTTOMLEFT"); hlL:SetAlpha(0.4); hlL:SetBlendMode("ADD")
+    local hlR = hb:CreateTexture(nil, "HIGHLIGHT")
+    hlR:SetAtlas("Options_ListExpand_Left", true)
+    local a2, b2, c2, d2, e2, f2, g2, h2 = hlR:GetTexCoord()
+    hlR:SetTexCoord(e2, f2, g2, h2, a2, b2, c2, d2)
+    hlR:SetPoint("TOPRIGHT"); hlR:SetPoint("BOTTOMRIGHT"); hlR:SetAlpha(0.4); hlR:SetBlendMode("ADD")
+    local hlM = hb:CreateTexture(nil, "HIGHLIGHT")
+    hlM:SetAtlas("_Options_ListExpand_Middle", false)
+    hlM:SetPoint("TOPLEFT", hlL, "TOPRIGHT"); hlM:SetPoint("BOTTOMRIGHT", hlR, "BOTTOMLEFT")
+    hlM:SetAlpha(0.4); hlM:SetBlendMode("ADD")
+    local xoff = 12
+    if iconID then
+        local ico = hb:CreateTexture(nil, "ARTWORK")
+        local isz = barH - 8
+        ico:SetSize(isz, isz)
+        ico:SetPoint("LEFT", hb, "LEFT", 6, 0)
+        ico:SetTexture(iconID)
+        ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        xoff = 6 + isz + 8
+    end
+    local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    ht:SetPoint("LEFT", hb, "LEFT", xoff, 0)
+    ht:SetText(C("FFD100", title))
+    local tex = hb:CreateTexture(nil, "ARTWORK")
+    tex:SetPoint("RIGHT", hb, "RIGHT", -8, 0)
+    local function Update(collapsed)
+        tex:SetAtlas(collapsed and "common-button-list-plus" or "common-button-list-minus", true)
+        tex:SetVertexColor(1, 0.82, 0)
+    end
+    return hb, Update
+end
+
 local function CreateOptionsWindow()
     local f = CreateFrame("Frame", "RainonUIOptions", UIParent, "DefaultPanelFlatTemplate")
     f:SetSize(620, 590)
@@ -989,50 +1041,79 @@ local function CreateOptionsWindow()
     toolsPanel:SetPoint("TOPLEFT")
 
     -- Панель «Профессии»
-    local profPanel = BuildChecklist(container,
-        PROF_OPTIONS,
-        function(key) return ns.db.tools[key] end,
-        onToolToggle)
+    local profPanel = CreateFrame("Frame", nil, container)
+    local PROF_HEADER_HEIGHT = 36
+    profPanel:SetSize(596, PROF_HEADER_HEIGHT)
     profPanel:SetPoint("TOPLEFT")
 
     -- Строки «Баффы крафта»: галочка + название + выпадающий список выбора,
     -- и кнопка открытия окна «Недельные знания» (Knowledge.lua).
-    do
-        local y = -profPanel:GetHeight() + 6
-        if ns.ConcCraft and ns.ConcCraft.BuildOptions then
-            y = ns.ConcCraft.BuildOptions(profPanel, y, MakeDropdown)
-        end
+    local function BuildProfessionSettings(profPanel)
+        local y = 0
 
-        -- строка: [галочка трекера] [название] [дропдаун выбора]
-        local function ProfRow(toolKey, label, dropWidth, cfgKey, options)
+        local function RefreshCraftBuffs()
+            if ns.ConcCraft then ns.ConcCraft.Refresh() end
+        end
+        local function ProfCheck(toolKey)
             local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
             cb:SetPoint("TOPLEFT", 10, y)
             cb:SetChecked(ns.db.tools[toolKey] ~= false)
             cb:SetScript("OnClick", function(self)
                 onToolToggle({ key = toolKey }, self:GetChecked() and true or false)
+                RefreshCraftBuffs()
             end)
+            return cb
+        end
+
+        local function ProfRow(toolKey, label, dropWidth, cfgKey, options)
+            local cb = ProfCheck(toolKey)
             local lbl = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             lbl:SetPoint("LEFT", cb, "RIGHT", 4, 0)
             lbl:SetText(label)
             local dd = MakeDropdown(profPanel, dropWidth,
                 function() return ns.db.tools[cfgKey] end,
-                function(v) ns.db.tools[cfgKey] = v end,
+                function(v)
+                    ns.db.tools[cfgKey] = v
+                    ns.Tools.UpdateProfBuffs()
+                    RefreshCraftBuffs()
+                end,
                 options)
             dd:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
             y = y - 32
         end
 
-        ProfRow("prof_phial", "Харанирский флакон изобретательности", 120, "phialQuality", {
-            { text = "Качество 1", value = 241313 },
-            { text = "Качество 2", value = 241312 },
-        })
+        if ns.ConcCraft and ns.ConcCraft.BuildPhialOption then
+            ns.ConcCraft.BuildPhialOption(profPanel, ProfCheck("prof_phial"), MakeDropdown, function()
+                ns.Tools.UpdateProfBuffs()
+                RefreshCraftBuffs()
+            end)
+            y = y - 32
+        else
+            ProfRow("prof_phial", "Харанирский флакон изобретательности", 120, "phialQuality", {
+                { text = "Качество 1", value = 241313 },
+                { text = "Качество 2", value = 241312 },
+            })
+        end
         ProfRow("prof_essence", "Раскалывание сущности", 210, "shatterEssence", {
             { text = "Частица чистой Бездны",       value = 236952 },
             { text = "Частица дикой магии",         value = 236951 },
             { text = "Частица изначальной энергии", value = 236950 },
             { text = "Частица света",               value = 236949 },
         })
+
+        local buffCheck = ns.MakeCheckButton(profPanel)
+        buffCheck:SetSize(24, 24)
+        buffCheck:SetPoint("TOPLEFT", 10, y)
+        buffCheck:SetChecked(ns.db.features.concCraftBuffs ~= false)
+        buffCheck:SetScript("OnClick", function(self)
+            ns.db.features.concCraftBuffs = self:GetChecked() and true or false
+            RefreshCraftBuffs()
+        end)
+        local buffLabel = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        buffLabel:SetPoint("LEFT", buffCheck, "RIGHT", 4, 0)
+        buffLabel:SetText("Баффы перед крафтом за концентрацию")
+        y = y - 28
 
         local knowBtn = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
         knowBtn:SetSize(230, 26)
@@ -1269,6 +1350,11 @@ local function CreateOptionsWindow()
         local moxieLbl = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         moxieLbl:SetPoint("LEFT", moxieCB, "RIGHT", 4, 0)
         moxieLbl:SetText("Купи сумку!")
+        local mapButton = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
+        mapButton:SetSize(110, 22)
+        mapButton:SetPoint("LEFT", moxieLbl, "RIGHT", 8, 0)
+        mapButton:SetText("Открыть карту")
+        mapButton:SetScript("OnClick", ns.Tools.OpenMoxieMap)
         y = y - 30
 
         local moxieText = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -1278,40 +1364,61 @@ local function CreateOptionsWindow()
         moxieText:SetText(MOXIE_INFO)
         y = y - moxieText:GetStringHeight() - 12
 
-        -- CraftSim (перенесено из «Удобства»): заголовок с подчёркиванием + галка.
-        y = y - 6
-        local craftHdr = profPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        craftHdr:SetPoint("TOPLEFT", 12, y)
-        craftHdr:SetText(C("FFD100", "CraftSim (нужны CraftSim и Auctionator)"))
-        local craftLine = profPanel:CreateTexture(nil, "ARTWORK")
-        craftLine:SetColorTexture(1, 1, 1, 0.15)
-        craftLine:SetHeight(1)
-        craftLine:SetPoint("TOPLEFT", 12, y - 20)
-        craftLine:SetPoint("TOPRIGHT", -12, y - 20)
-        y = y - 32
-        local craftCB = ns.MakeCheckButton(profPanel)
-        craftCB:SetSize(26, 26)
-        craftCB:SetPoint("TOPLEFT", 12, y)
-        craftCB.Text:SetText("Кнопка списка покупок на аукционе")
-        craftCB.Text:SetFontObject("GameFontHighlight")
-        craftCB:SetChecked(ns.db.features.craftAHButton and true or false)
-        craftCB:SetScript("OnClick", function(self)
-            ns.db.features.craftAHButton = self:GetChecked() and true or false
-            if ns.Integrations and ns.Integrations.RefreshAH then ns.Integrations.RefreshAH() end
-        end)
-        craftCB:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Кнопка списка покупок на аукционе", 1, 1, 1)
-            GameTooltip:AddLine("На окне аукциона добавляет кнопку, которая просит" ..
-                " CraftSim собрать список покупок для его ОЧЕРЕДИ крафта в Auctionator" ..
-                " — не нужно открывать сам CraftSim (сначала добавь рецепты в очередь" ..
-                " CraftSim).", 0.8, 0.8, 0.8, true)
-            GameTooltip:Show()
-        end)
-        craftCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        y = y - 30
-
         profPanel:SetHeight(-y + 20)
+    end
+
+    local profBody
+    local function ResizeProfessionPanel()
+        local bodyHeight = profBody and profBody:IsShown() and profBody:GetHeight() or 0
+        profPanel:SetHeight(PROF_HEADER_HEIGHT + bodyHeight)
+        if f.selectedTab == 3 then container:SetHeight(profPanel:GetHeight()) end
+    end
+
+    local function BuildProfessionBody()
+        local body = BuildChecklist(profPanel, PROF_OPTIONS)
+        body:SetPoint("TOPLEFT", 0, -PROF_HEADER_HEIGHT)
+        local recipeTop = -body:GetHeight() + 6
+        local recipeOptions = CreateFrame("Frame", nil, body)
+        recipeOptions:SetPoint("TOPLEFT", 0, recipeTop)
+        recipeOptions:SetPoint("TOPRIGHT", 0, recipeTop)
+        recipeOptions:SetHeight(0)
+        if ns.ConcCraft and ns.ConcCraft.BuildOptions then
+            ns.ConcCraft.BuildOptions(recipeOptions, MakeDropdown, MakeSpoilerBar)
+        end
+        local profSettings = CreateFrame("Frame", nil, body)
+        profSettings:SetPoint("TOPLEFT", recipeOptions, "BOTTOMLEFT")
+        profSettings:SetPoint("TOPRIGHT", recipeOptions, "BOTTOMRIGHT")
+        BuildProfessionSettings(profSettings)
+        local function ResizeBody()
+            body:SetHeight(-recipeTop + recipeOptions:GetHeight() + profSettings:GetHeight())
+            ResizeProfessionPanel()
+        end
+        recipeOptions:SetScript("OnSizeChanged", ResizeBody)
+        ResizeBody()
+        return body
+    end
+
+    do
+        local toggle = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
+        toggle:SetPoint("TOPLEFT", 8, -4)
+        toggle:SetPoint("TOPRIGHT", -8, -4)
+        toggle:SetHeight(32)
+        local function UpdateProfessionToggle()
+            local active = ns.ProfEnabled()
+            toggle:SetText(active and "Модуль профессий включён" or "Модуль профессий: ОТКЛЮЧЁН")
+            for _, texture in ipairs({ toggle.Left, toggle.Middle, toggle.Right }) do
+                texture:SetDesaturated(active)
+                texture:SetVertexColor(active and 0.55 or 1, 1, active and 0.62 or 1)
+            end
+            if active and not profBody then profBody = BuildProfessionBody() end
+            if profBody then profBody:SetShown(active) end
+            ResizeProfessionPanel()
+        end
+        toggle:SetScript("OnClick", function()
+            onToolToggle({ key = "professions_enabled" }, not ns.ProfEnabled())
+            UpdateProfessionToggle()
+        end)
+        profPanel:HookScript("OnShow", UpdateProfessionToggle)
     end
 
     -- Панель «Удобства»: телепорт, кнопка перезагрузки, метка танка
@@ -1478,61 +1585,6 @@ local function CreateOptionsWindow()
             function() if ns.Tools and ns.Tools.PlaySoundByName then ns.Tools.PlaySoundByName(AbundanceSoundName()) end end)
 
         featuresPanel:SetHeight(-y + 12)
-    end
-
-    -- Плашка-спойлер как в «Скриптах» (атласы заголовков журнала заданий
-    -- Blizzard: 3-слайс Options_ListExpand_* + правый край = зеркало левого,
-    -- чтобы убрать вшитый значок; глиф common-button-list-plus/minus).
-    -- iconID — опц. иконка слева внутри бара; height — опц. высота бара.
-    -- Возвращает (frame, Update(collapsed)) для смены +/−.
-    local function MakeSpoilerBar(parent, title, iconID, height)
-        local hb = CreateFrame("Button", nil, parent)
-        local left = hb:CreateTexture(nil, "BACKGROUND")
-        left:SetAtlas("Options_ListExpand_Left", true)
-        local barH = height or left:GetHeight()
-        if not barH or barH < 1 then barH = 24 end
-        hb:SetHeight(barH)
-        left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT")
-        local right = hb:CreateTexture(nil, "BACKGROUND")
-        right:SetAtlas("Options_ListExpand_Left", true)
-        local a, b, c, d, e, f, g, h = right:GetTexCoord()
-        right:SetTexCoord(e, f, g, h, a, b, c, d)
-        right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT")
-        local mid = hb:CreateTexture(nil, "BACKGROUND")
-        mid:SetAtlas("_Options_ListExpand_Middle", false)
-        mid:SetPoint("TOPLEFT", left, "TOPRIGHT"); mid:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
-        local hlL = hb:CreateTexture(nil, "HIGHLIGHT")
-        hlL:SetAtlas("Options_ListExpand_Left", true)
-        hlL:SetPoint("TOPLEFT"); hlL:SetPoint("BOTTOMLEFT"); hlL:SetAlpha(0.4); hlL:SetBlendMode("ADD")
-        local hlR = hb:CreateTexture(nil, "HIGHLIGHT")
-        hlR:SetAtlas("Options_ListExpand_Left", true)
-        local a2, b2, c2, d2, e2, f2, g2, h2 = hlR:GetTexCoord()
-        hlR:SetTexCoord(e2, f2, g2, h2, a2, b2, c2, d2)
-        hlR:SetPoint("TOPRIGHT"); hlR:SetPoint("BOTTOMRIGHT"); hlR:SetAlpha(0.4); hlR:SetBlendMode("ADD")
-        local hlM = hb:CreateTexture(nil, "HIGHLIGHT")
-        hlM:SetAtlas("_Options_ListExpand_Middle", false)
-        hlM:SetPoint("TOPLEFT", hlL, "TOPRIGHT"); hlM:SetPoint("BOTTOMRIGHT", hlR, "BOTTOMLEFT")
-        hlM:SetAlpha(0.4); hlM:SetBlendMode("ADD")
-        local xoff = 12
-        if iconID then
-            local ico = hb:CreateTexture(nil, "ARTWORK")
-            local isz = barH - 8
-            ico:SetSize(isz, isz)
-            ico:SetPoint("LEFT", hb, "LEFT", 6, 0)
-            ico:SetTexture(iconID)
-            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            xoff = 6 + isz + 8
-        end
-        local ht = hb:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        ht:SetPoint("LEFT", hb, "LEFT", xoff, 0)
-        ht:SetText(C("FFD100", title))
-        local tex = hb:CreateTexture(nil, "ARTWORK")
-        tex:SetPoint("RIGHT", hb, "RIGHT", -8, 0)
-        local function Update(collapsed)
-            tex:SetAtlas(collapsed and "common-button-list-plus" or "common-button-list-minus", true)
-            tex:SetVertexColor(1, 0.82, 0)
-        end
-        return hb, Update
     end
 
     -- Панель «Макросы»: матрица [иконка | РУ | ЕУ]; способности — сворачиваемые боксы.
@@ -2343,7 +2395,7 @@ local function CreateOptionsWindow()
         { panel = toolsPanel,
           intro = "Игровые инструменты: стикеры сбора рейда, напоминания и оповещения." },
         { panel = profPanel,
-          intro = "Профессии: баффы крафта, недельные знания и «Купи сумку»." },
+          intro = "" },
         { panel = featuresPanel,
           intro = "" },
         { panel = macroPanel,
@@ -2388,12 +2440,13 @@ local function CreateOptionsWindow()
             intro:SetPoint("TOPLEFT", 16, -34)
             intro:SetPoint("TOPRIGHT", -16, -34)
         end
-        -- У вкладки «Подземелья» общий intro пустой (описание живёт в панели),
-        -- поэтому поднимаем область прокрутки ближе к заголовку окна. На
-        -- остальных вкладках оставляем запас под многострочный intro.
-        local topY = (PANELS[index].panel == dungeonPanel
-            or PANELS[index].panel == macroPanel
-            or PANELS[index].panel == featuresPanel) and -44 or -78
+        local panel = PANELS[index].panel
+        local topY = -78
+        if panel == profPanel then
+            topY = -24
+        elseif panel == dungeonPanel or panel == macroPanel or panel == featuresPanel then
+            topY = -44
+        end
         scroll:SetPoint("TOPLEFT", 12, topY)
         if scroll.ScrollBar then
             scroll.ScrollBar:SetPoint("TOPLEFT", f, "TOPRIGHT", 6, topY)
