@@ -182,24 +182,6 @@ local TOOLS_OPTIONS = {
     { key = "summon",       name = "Шкаф сумона",  desc = "Чернокнижник начал ритуал призыва." },
 }
 
-local PROF_OPTIONS = {
-    { header = "Крафт за концентрацию" },
-}
-
--- Текст-справка по Moxie (перенесён из бывшей вкладки «Валюта»).
-local MOXIE_INFO = "Учитываются все профессии:\n"
-    .. "• Алхимия — Пыл искусного алхимика\n"
-    .. "• Кузнечное дело — Пыл искусного кузнеца\n"
-    .. "• Наложение чар — Пыл искусного зачаровывателя\n"
-    .. "• Инженерное дело — Пыл искусного инженера\n"
-    .. "• Травничество — Пыл искусного травника\n"
-    .. "• Начертание — Пыл искусного начертателя\n"
-    .. "• Ювелирное дело — Пыл искусного ювелира\n"
-    .. "• Кожевничество — Пыл искусного кожевника\n"
-    .. "• Горное дело — Пыл искусного горняка\n"
-    .. "• Снятие шкур — Пыл искусного скорняка\n"
-    .. "• Портняжное дело — Пыл искусного портного"
-
 local FEATURES_OPTIONS = {
     { header = "Общее" },
     { key = "teleportPrompt", name = "Телепорты",
@@ -1046,14 +1028,31 @@ local function CreateOptionsWindow()
     profPanel:SetSize(596, PROF_HEADER_HEIGHT)
     profPanel:SetPoint("TOPLEFT")
 
-    -- Строки «Баффы крафта»: галочка + название + выпадающий список выбора,
-    -- и кнопка открытия окна «Недельные знания» (Knowledge.lua).
-    local function BuildProfessionSettings(profPanel)
-        local y = 0
+    local function ProfessionSectionHeader(parent, title, y)
+        local header = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        header:SetPoint("TOPLEFT", 12, y)
+        header:SetText(C("FFD100", title))
 
-        local function RefreshCraftBuffs()
-            if ns.ConcCraft then ns.ConcCraft.Refresh() end
-        end
+        local line = parent:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(1, 1, 1, 0.15)
+        line:SetHeight(1)
+        line:SetPoint("TOPLEFT", 12, y - 20)
+        line:SetPoint("TOPRIGHT", -12, y - 20)
+        return y - 21
+    end
+
+    local function RefreshCraftBuffs()
+        if ns.ConcCraft then ns.ConcCraft.Refresh() end
+    end
+    local function OQS()
+        RainonUIOrdersDB = RainonUIOrdersDB or {}
+        RainonUIOrdersDB.settings = RainonUIOrdersDB.settings or {}
+        return RainonUIOrdersDB.settings
+    end
+
+    local function BuildAutomationSettings(profPanel)
+        local y = ProfessionSectionHeader(profPanel, "Автоматизация:", -8) - 11
+
         local function ProfCheck(toolKey)
             local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
@@ -1102,61 +1101,44 @@ local function CreateOptionsWindow()
             { text = "Частица света",               value = 236949 },
         })
 
-        local buffCheck = ns.MakeCheckButton(profPanel)
-        buffCheck:SetSize(24, 24)
-        buffCheck:SetPoint("TOPLEFT", 10, y)
-        buffCheck:SetChecked(ns.db.features.concCraftBuffs ~= false)
-        buffCheck:SetScript("OnClick", function(self)
-            ns.db.features.concCraftBuffs = self:GetChecked() and true or false
-            RefreshCraftBuffs()
-        end)
-        local buffLabel = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        buffLabel:SetPoint("LEFT", buffCheck, "RIGHT", 4, 0)
-        buffLabel:SetText("Баффы перед крафтом за концентрацию")
-        y = y - 28
+        -- (02.11) Завершающие реагенты: для выбранного рецепта аддон сам кладёт их в окно крафта
+        -- (Коллектор → Индикатор → Наводчик; что есть в сумках). Значения — ID рецептов.
+        do
+            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            l:SetPoint("TOPLEFT", 14, y - 4)
+            l:SetText("Авто: Подставлять «Завершающий реагент»")
+            local dd = MakeDropdown(profPanel, 220,
+                function()
+                    local v = OQS().finishRecipe
+                    if v == nil then return 1230859 end
+                    return v
+                end,
+                function(v) OQS().finishRecipe = v end,
+                {
+                    { text = "Зелье безрассудства",        value = 1230859 },
+                    { text = "Талассийское масло феникса", value = 1236491 },
+                    { text = "Выключено",                  value = 0 },
+                })
+            dd:SetPoint("LEFT", l, "RIGHT", 10, 0)
+            dd:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Завершающие реагенты", 1, 1, 1)
+                GameTooltip:AddLine("Когда выбираешь этот рецепт в окне профессии, аддон сам кладёт в пустые слоты" ..
+                    " «Завершающий реагент»: Коллектор перепроизводства → Индикатор изобретательности →" ..
+                    " Наводчик находчивости (что есть в сумках и что слот принимает). Золотую звезду не кладёт." ..
+                    " Вынул сам — до следующего выбора рецепта не вернёт.", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            dd:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            y = y - 32
+        end
+        profPanel:SetHeight(-y)
+    end
 
-        local knowBtn = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
-        knowBtn:SetSize(230, 26)
-        knowBtn:SetPoint("TOPLEFT", 10, y - 6)
-        knowBtn:SetText("Недельные знания…")
-        knowBtn:SetScript("OnClick", function()
-            if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
-        end)
-        knowBtn:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Недельные знания", 1, 1, 1)
-            GameTooltip:AddLine("Открывает отдельное окно: недельный квест профессии" ..
-                " и трактат по каждой профессии. Команда " .. C("FFFF00", "/rsk") .. ".",
-                nil, nil, nil, true)
-            GameTooltip:Show()
-        end)
-        knowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local function BuildProfessionSettings(profPanel)
+        local y = ProfessionSectionHeader(profPanel, "Основные настройки", -8) - 11
 
-        -- Галка «Открывать с профессией» — рядом с кнопкой (перенесена из окна
-        -- «Недельные знания»). Окно само открывается/закрывается с окном профессии.
-        local autoCB = ns.MakeCheckButton(profPanel)
-        autoCB:SetSize(24, 24)
-        autoCB:SetPoint("LEFT", knowBtn, "RIGHT", 12, 0)
-        autoCB.Text:SetText("Открывать с профессией")
-        autoCB.Text:SetFontObject("GameFontHighlight")
-        autoCB:SetChecked(ns.db.knowledge.autoOpen and true or false)
-        autoCB:SetScript("OnClick", function(self)
-            ns.db.knowledge.autoOpen = self:GetChecked() and true or false
-        end)
-        autoCB:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Открывать с профессией", 1, 1, 1)
-            GameTooltip:AddLine("Окно «Недельные знания» само открывается вместе с" ..
-                " окном профессии и скрывается вместе с ним. Отдельно — кнопкой у" ..
-                " миникарты или командой " .. C("FFFF00", "/rsk") .. ".", 0.8, 0.8, 0.8, true)
-            GameTooltip:Show()
-        end)
-        autoCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-        y = y - 6 - 26 - 12   -- ниже кнопки «Недельные знания…»
-
-        -- Трактат: две галки (подпись в подсказке + пиксельное свечение).
-        local function ProfFeatureCB(featureKey, label, tip, onChange)
+        local function ProfFeatureCheck(featureKey, label, tip, onChange)
             local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
             cb:SetPoint("TOPLEFT", 10, y)
@@ -1172,33 +1154,28 @@ local function CreateOptionsWindow()
                 GameTooltip:Show()
             end)
             cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            l:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-            l:SetText(label)
+            return cb
+        end
+
+        local function OpenWindowRow(check, label, windowName, open)
+            local btn = CreateFrame("Button", nil, profPanel, "UIPanelButtonTemplate")
+            btn:SetSize(90, 24)
+            btn:SetPoint("LEFT", check, "RIGHT", 4, 0)
+            btn:SetText("Открыть")
+            btn:SetScript("OnClick", function()
+                local window = _G[windowName]
+                if not window or not window:IsShown() then open() end
+                window = _G[windowName]
+                if window and window:IsShown() then f:Hide() end
+            end)
+
+            local text = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            text:SetPoint("LEFT", btn, "RIGHT", 8, 0)
+            text:SetText(label)
             y = y - 28
+            return btn
         end
-        ProfFeatureCB("treatiseTooltip", "Подпись трактата в подсказке",
-            "В подсказке предмета-трактата: использован ли он на этой неделе" ..
-            " (галочка/крестик), для профессий текущего персонажа.")
-        ProfFeatureCB("treatiseGlow", "Свечение неиспользованного трактата",
-            "Иконка трактата (в сумках и сундуке отряда, в т.ч. в Баганаторе)" ..
-            " светится пиксельным свечением, пока трактат не использован.",
-            function() if ns.Treatise and ns.Treatise.RefreshBank then ns.Treatise.RefreshBank() end end)
-        -- Плашки у окна профессии (02.11)
-        local function RefreshPanels()
-            if ns.OrderQueue and ns.OrderQueue.UpdateProfPanels then ns.OrderQueue.UpdateProfPanels() end
-        end
-        ProfFeatureCB("profItemsPanel", "Панель «Предметы профессии»",
-            "На вкладке крафта любой профессии (как «Знания и заряды»): Раскалывание сущности (наложение чар) и" ..
-            " Харанирский флакон — светятся, если баффа нет, клик как раньше; Золотая звезда, Индикатор изобретательности, Коллектор" ..
-            " перепроизводства, Наводчик находчивости — иконка и сколько есть усилителей крафта" ..
-            " (сумки + банк + банк отряда). Наведи на иконку — подробности и сколько частей.", RefreshPanels)
-        ProfFeatureCB("profPanelsLock", "Закрепить плашку «Предметы профессии»",
-            "Плашка «Предметы профессии» перестаёт двигаться мышью; у закреплённой" ..
-            " плашки нет фона и заголовка — остаётся только содержимое. Переставить: снять галку," ..
-            " перетащить плашку, поставить галку снова.", RefreshPanels)
-        -- (02.11) Главная галка очереди заказов — здесь, над «Окна сами» (раньше пряталась во вкладке «Тест»).
-        -- По умолчанию ВЫКЛ (features.orderQueue = false), поэтому не ProfFeatureCB (у него «нет записи = вкл.»).
+
         do
             local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
@@ -1217,25 +1194,87 @@ local function CreateOptionsWindow()
                 GameTooltip:Show()
             end)
             cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            OpenWindowRow(cb, "Очередь заказов", "RainonUIOrderQueue", function()
+                if ns.OrderQueue and ns.OrderQueue.Toggle then ns.OrderQueue.Toggle() end
+            end)
+        end
+
+        do
+            local autoCB = ns.MakeCheckButton(profPanel)
+            autoCB:SetSize(24, 24)
+            autoCB:SetPoint("TOPLEFT", 10, y)
+            autoCB:SetChecked(ns.db.knowledge.autoOpen and true or false)
+            autoCB:SetScript("OnClick", function(self)
+                ns.db.knowledge.autoOpen = self:GetChecked() and true or false
+            end)
+            autoCB:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Открывать с профессией", 1, 1, 1)
+                GameTooltip:AddLine("Окно «Недельные знания» само открывается вместе с" ..
+                    " окном профессии и скрывается вместе с ним. Отдельно — кнопкой у" ..
+                    " миникарты или командой " .. C("FFFF00", "/rsk") .. ".", 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            autoCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+            local knowBtn = OpenWindowRow(autoCB, "Недельные знания: Открывать с профессией", "RainonUIKnowledge", function()
+                if ns.Knowledge and ns.Knowledge.Toggle then ns.Knowledge:Toggle() end
+            end)
+            knowBtn:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Недельные знания", 1, 1, 1)
+                GameTooltip:AddLine("Открывает отдельное окно: недельный квест профессии" ..
+                    " и трактат по каждой профессии. Команда " .. C("FFFF00", "/rsk") .. ".",
+                    nil, nil, nil, true)
+                GameTooltip:Show()
+            end)
+            knowBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+
+        do
+            local label = "Крафт за концентрацию"
+            local cb = ProfFeatureCheck("concCraft", label,
+                "Открывать окно «Крафт за концентрацию» вместе с профессией.",
+                function() if ns.ConcCraft then ns.ConcCraft.ApplyVisibility() end end)
+            OpenWindowRow(cb, label, "RainonUIConcCraft", function()
+                if ns.ConcCraft and ns.ConcCraft.Open then ns.ConcCraft.Open() end
+            end)
+        end
+
+        local buffCheck = ns.MakeCheckButton(profPanel)
+        buffCheck:SetSize(24, 24)
+        buffCheck:SetPoint("TOPLEFT", 10, y)
+        buffCheck:SetChecked(ns.db.features.concCraftBuffs ~= false)
+        buffCheck:SetScript("OnClick", function(self)
+            ns.db.features.concCraftBuffs = self:GetChecked() and true or false
+            RefreshCraftBuffs()
+        end)
+        local buffLabel = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        buffLabel:SetPoint("LEFT", buffCheck, "RIGHT", 4, 0)
+        buffLabel:SetText("Баффы перед крафтом за концентрацию")
+        y = y - 28
+
+        local function ProfFeatureCB(featureKey, label, tip, onChange)
+            local cb = ProfFeatureCheck(featureKey, label, tip, onChange)
             local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             l:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-            l:SetText("Очередь заказов")
+            l:SetText(label)
             y = y - 28
         end
-        ProfFeatureCB("concCraft", "Крафт за концентрацию",
-            "Открывать окно «Крафт за концентрацию» вместе с профессией.",
-            function() if ns.ConcCraft then ns.ConcCraft.ApplyVisibility() end end)
-        ProfFeatureCB("oqAutoOpen", "Окна сами: «Клиент» — очередь заказов, крафт — «Знания и заряды»",
+        -- Плашки у окна профессии (02.11)
+        local function RefreshPanels()
+            if ns.OrderQueue and ns.OrderQueue.UpdateProfPanels then ns.OrderQueue.UpdateProfPanels() end
+        end
+        ProfFeatureCB("profPanelsLock", "Закрепить плашку «Предметы профессии»",
+            "Плашка «Предметы профессии» перестаёт двигаться мышью; у закреплённой" ..
+            " плашки нет фона и заголовка — остаётся только содержимое. Переставить: снять галку," ..
+            " перетащить плашку, поставить галку снова.", RefreshPanels)
+        ProfFeatureCB("oqAutoOpen", "Авто: Открытие окон «Очередь заказов» и «Знания и заряды»",
             "Открыл вкладку заказов «Клиент» — справа открывается очередь заказов, окно «Знания и заряды»" ..
             " прячется. Вернулся к крафту — очередь закрывается, «Знания и заряды» возвращается" ..
             " (или открывается, если включено «Открывать с профессией»).")
 
         -- (02.11) Очередь заказов: технические настройки (перенесены из окна очереди).
-        local function OQS()
-            RainonUIOrdersDB = RainonUIOrdersDB or {}
-            RainonUIOrdersDB.settings = RainonUIOrdersDB.settings or {}
-            return RainonUIOrdersDB.settings
-        end
         do
             local cb = ns.MakeCheckButton(profPanel)
             cb:SetSize(24, 24)
@@ -1290,47 +1329,8 @@ local function CreateOptionsWindow()
             g:SetText("|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t")
             y = y - 30
         end
-        -- (02.11) Завершающие реагенты: для выбранного рецепта аддон сам кладёт их в окно крафта
-        -- (Коллектор → Индикатор → Наводчик; что есть в сумках). Значения — ID рецептов.
-        do
-            local l = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            l:SetPoint("TOPLEFT", 14, y - 4)
-            l:SetText("Сам класть завершающие реагенты в рецепт:")
-            local dd = MakeDropdown(profPanel, 220,
-                function()
-                    local v = OQS().finishRecipe
-                    if v == nil then return 1230859 end
-                    return v
-                end,
-                function(v) OQS().finishRecipe = v end,
-                {
-                    { text = "Зелье безрассудства",        value = 1230859 },
-                    { text = "Талассийское масло феникса", value = 1236491 },
-                    { text = "Выключено",                  value = 0 },
-                })
-            dd:SetPoint("LEFT", l, "RIGHT", 10, 0)
-            dd:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText("Завершающие реагенты", 1, 1, 1)
-                GameTooltip:AddLine("Когда выбираешь этот рецепт в окне профессии, аддон сам кладёт в пустые слоты" ..
-                    " «Завершающий реагент»: Коллектор перепроизводства → Индикатор изобретательности →" ..
-                    " Наводчик находчивости (что есть в сумках и что слот принимает). Золотую звезду не кладёт." ..
-                    " Вынул сам — до следующего выбора рецепта не вернёт.", 0.8, 0.8, 0.8, true)
-                GameTooltip:Show()
-            end)
-            dd:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            y = y - 32
-        end
-        y = y - 8
+        y = ProfessionSectionHeader(profPanel, "Дополнительные настройки", y - 8) - 11
 
-        -- Разделительная линия
-        local div = profPanel:CreateTexture(nil, "ARTWORK")
-        div:SetColorTexture(1, 1, 1, 0.15)
-        div:SetSize(500, 1)
-        div:SetPoint("TOPLEFT", 10, y)
-        y = y - 14
-
-        -- «Купи сумку» + справка (перенесено из бывшей вкладки «Валюта»)
         local moxieCB = ns.MakeCheckButton(profPanel)
         moxieCB:SetSize(24, 24)
         moxieCB:SetPoint("TOPLEFT", 10, y)
@@ -1357,12 +1357,18 @@ local function CreateOptionsWindow()
         mapButton:SetScript("OnClick", ns.Tools.OpenMoxieMap)
         y = y - 30
 
-        local moxieText = profPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        moxieText:SetPoint("TOPLEFT", 12, y)
-        moxieText:SetWidth(496)
-        moxieText:SetJustifyH("LEFT")
-        moxieText:SetText(MOXIE_INFO)
-        y = y - moxieText:GetStringHeight() - 12
+        ProfFeatureCB("treatiseTooltip", "Подпись трактата в подсказке",
+            "В подсказке предмета-трактата: использован ли он на этой неделе" ..
+            " (галочка/крестик), для профессий текущего персонажа.")
+        ProfFeatureCB("treatiseGlow", "Свечение неиспользованного трактата",
+            "Иконка трактата (в сумках и сундуке отряда, в т.ч. в Баганаторе)" ..
+            " светится пиксельным свечением, пока трактат не использован.",
+            function() if ns.Treatise and ns.Treatise.RefreshBank then ns.Treatise.RefreshBank() end end)
+        ProfFeatureCB("profItemsPanel", "Панель «Предметы профессии»",
+            "На вкладке крафта любой профессии (как «Знания и заряды»): Раскалывание сущности (наложение чар) и" ..
+            " Харанирский флакон — светятся, если баффа нет, клик как раньше; Золотая звезда, Индикатор изобретательности, Коллектор" ..
+            " перепроизводства, Наводчик находчивости — иконка и сколько есть усилителей крафта" ..
+            " (сумки + банк + банк отряда). Наведи на иконку — подробности и сколько частей.", RefreshPanels)
 
         profPanel:SetHeight(-y + 20)
     end
@@ -1375,25 +1381,39 @@ local function CreateOptionsWindow()
     end
 
     local function BuildProfessionBody()
-        local body = BuildChecklist(profPanel, PROF_OPTIONS)
+        local body = CreateFrame("Frame", nil, profPanel)
+        body:SetWidth(596)
         body:SetPoint("TOPLEFT", 0, -PROF_HEADER_HEIGHT)
-        local recipeTop = -body:GetHeight() + 6
+        local headerBottom = ProfessionSectionHeader(body, "Крафт за концентрацию", -16)
         local recipeOptions = CreateFrame("Frame", nil, body)
-        recipeOptions:SetPoint("TOPLEFT", 0, recipeTop)
-        recipeOptions:SetPoint("TOPRIGHT", 0, recipeTop)
+        recipeOptions:SetPoint("TOPLEFT", 0, headerBottom)
+        recipeOptions:SetPoint("TOPRIGHT", 0, headerBottom)
         recipeOptions:SetHeight(0)
         if ns.ConcCraft and ns.ConcCraft.BuildOptions then
             ns.ConcCraft.BuildOptions(recipeOptions, MakeDropdown, MakeSpoilerBar)
         end
+        local automation = CreateFrame("Frame", nil, body)
+        automation:SetPoint("TOPLEFT", recipeOptions, "BOTTOMLEFT")
+        automation:SetPoint("TOPRIGHT", recipeOptions, "BOTTOMRIGHT")
+        BuildAutomationSettings(automation)
+        local recycling = CreateFrame("Frame", nil, body)
+        recycling:SetPoint("TOPLEFT", automation, "BOTTOMLEFT")
+        recycling:SetPoint("TOPRIGHT", automation, "BOTTOMRIGHT")
+        recycling:SetHeight(0)
+        if ns.ConcCraft and ns.ConcCraft.BuildRecycleOption then
+            ns.ConcCraft.BuildRecycleOption(recycling, MakeDropdown, MakeSpoilerBar)
+        end
         local profSettings = CreateFrame("Frame", nil, body)
-        profSettings:SetPoint("TOPLEFT", recipeOptions, "BOTTOMLEFT")
-        profSettings:SetPoint("TOPRIGHT", recipeOptions, "BOTTOMRIGHT")
+        profSettings:SetPoint("TOPLEFT", recycling, "BOTTOMLEFT")
+        profSettings:SetPoint("TOPRIGHT", recycling, "BOTTOMRIGHT")
         BuildProfessionSettings(profSettings)
         local function ResizeBody()
-            body:SetHeight(-recipeTop + recipeOptions:GetHeight() + profSettings:GetHeight())
+            body:SetHeight(-headerBottom + recipeOptions:GetHeight()
+                + automation:GetHeight() + recycling:GetHeight() + profSettings:GetHeight())
             ResizeProfessionPanel()
         end
         recipeOptions:SetScript("OnSizeChanged", ResizeBody)
+        recycling:SetScript("OnSizeChanged", ResizeBody)
         ResizeBody()
         return body
     end
@@ -2338,7 +2358,7 @@ local function CreateOptionsWindow()
             "(нажатие — только «Сделать», взять и сдать идут сами). Без CraftSim; цены — из Auctionator.")
         y = y - math.ceil(od:GetStringHeight()) - 10
 
-        -- (02.11) галка «включить» перенесена во вкладку «Профессии» (над «Окна сами»)
+        -- (02.11) галка «включить» перенесена во вкладку «Профессии»
         local onote = testPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
         onote:SetPoint("TOPLEFT", PAD, y)
         onote:SetText("Включается галкой «Очередь заказов» во вкладке «Профессии».")
@@ -2369,14 +2389,6 @@ local function CreateOptionsWindow()
         obtn:SetText("Открыть очередь")
         obtn:SetScript("OnClick", function()
             if ns.OrderQueue and ns.OrderQueue.Toggle then ns.OrderQueue.Toggle() end
-        end)
-        -- Макросы сумок для панели команд (0.0_/0.1_RainonUI — /click по кнопкам «Сумка»/«Травы»)
-        local mbtn = CreateFrame("Button", nil, testPanel, "UIPanelButtonTemplate")
-        mbtn:SetSize(220, 24)
-        mbtn:SetPoint("LEFT", obtn, "RIGHT", 10, 0)
-        mbtn:SetText("Создать макросы сумок")
-        mbtn:SetScript("OnClick", function()
-            if ns.OrderQueue and ns.OrderQueue.CreateBagMacros then ns.OrderQueue.CreateBagMacros() end
         end)
         y = y - 34
 

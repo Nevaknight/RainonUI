@@ -1,9 +1,9 @@
 # RainonUI — Changelog
 
-## 1.8.2
+## 1.9.0
 
-* Added a master switch to the Professions tab. It starts enabled for players without a saved preference. Turning it off hides the profession settings and pauses their features. The minimap icon remains visible.
-* Concentration Crafting prompts for the selected Haranir Phial of Ingenuity when its buff is missing, and for Shatter Essence in Enchanting. If both buffs are missing, apply the phial first. Required buff items must be in your bags. Missing items are highlighted beside the window.
-* Reagent settings are now grouped under collapsible recipe rows. Reagent names and quantities have separate fields, and reagents without quality show an empty disabled selector.
-* Added Open Map buttons to the Buy a Bag reminder and its settings row. Both mark Lyna in Midnight's Silvermoon City.
-* Removed the CraftSim shopping-list button from the Auction House.
+* Choose which recipes the crafting macros use directly in the Concentration Crafting window. The Order Queue's Macros button creates or updates both the concentration and charge-based crafting macros.
+* Make Stabilized Derivate from the selected rank-one potion directly from the Alchemy crafting window. The recipe can run without a crafting buff.
+* See when your Stabilized Derivate stock will run out if you craft the selected recipes in full-charge batches. The forecast appears next to the Derivate recipe.
+* Group automatic finishing reagents, the Haranir phial, Shatter Essence and potion recycling under Automation in Professions settings.
+* Open Order Queue, Weekly Knowledge and Concentration Crafting directly from Professions settings. Concentration Crafting can open manually while your profession is open, even with automatic opening turned off.

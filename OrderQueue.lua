@@ -73,6 +73,14 @@ local function DB()
         d.procs, d.procLog, d.bags = {}, {}, {}
         d.accountingReset20261108 = time()
     end
+    -- Local restart for the next round of in-game measurements.
+    if not d.accountingReset20261109 then
+        d.accountingArchive20261109 = {
+            procs = d.procs, procLog = d.procLog, bags = d.bags, bagDebug = d.bagDebug,
+        }
+        d.procs, d.procLog, d.bags, d.bagDebug = {}, {}, {}, {}
+        d.accountingReset20261109 = time()
+    end
     d.version  = d.version or 1
     d.settings = d.settings or {}
     local s = d.settings
@@ -624,8 +632,9 @@ local function ApplyRule(e)
     e.needText = (e.canCraft == false)
         and ("Нужны реагенты" .. (e.missing and (": " .. ItemName(e.missing) .. " x" .. (e.missingN or "?")) or ""))
         or nil
+    e.minProfitChecked = s.minProfit or 0
     if e.mark == "yes" then e.ok = true; e.rule = "check"; e.reason = nil; return end
-    if (e.profit or 0) < (s.minProfit or 0) then
+    if (e.profit or 0) < e.minProfitChecked then
         e.ok = false; e.rule = nil
         e.reason = ((e.profit or 0) < 0 and ("Убыток " .. Gold(-(e.profit or 0))) or ("Прибыль " .. Gold(e.profit or 0)))
             .. " — меньше порога «Прибыль не меньше» " .. Gold(s.minProfit or 0)
@@ -1230,6 +1239,11 @@ local function DoCraft(e)
         orderID = tostring(e.orderID), rule = e.rule, manual = e.manual,
         minQ = e.minQ, expQ = e.expQ, skill = e.skill, diff = e.diff,
         ourCost = e.ourCost, noPrice = e.noPrice, reward = e.reward, rewardItems = e.rewardItems, profit = e.profit,
+        decision = {
+            minProfit = e.minProfitChecked,
+            profit = e.profit or 0,
+            swaps = e.model.swapped,
+        },
     })
     ourCraft = true
     local ok, err = pcall(C_TradeSkillUI.CraftRecipe, e.recipeID, 1, ReagentTbl(e.model), nil, e.orderID, false)
@@ -1582,9 +1596,8 @@ local function EntryTooltip(self)
                 GameTooltip:AddDoubleLine("Награда: " .. rw.link .. " x" .. rw.n,
                     per > 0 and (Gold(per * rw.n) .. " (сфера)") or ns.C("808080", "сфера не учитывается"), 1, 1, 1, 1, 1, 1)
             elseif rw.link and rw.id == PAYOUT_BAG and not rw.p then
-                local bv = OQ.BagValue(PAYOUT_BAG)
                 GameTooltip:AddDoubleLine("Награда: " .. rw.link .. " x" .. rw.n,
-                    bv and ns.C("ffd100", "~" .. Gold(bv * rw.n) .. " (замер, не в прибыли)") or ns.C("ff6060", "нет замеров"), 1, 1, 1, 1, 1, 1)
+                    OQ.BagDisplayText(PAYOUT_BAG, rw.n), 1, 1, 1, 1, 1, 1)
             elseif rw.link then
                 GameTooltip:AddDoubleLine("Награда: " .. rw.link .. " x" .. rw.n,
                     rw.p and Gold(rw.p * rw.n) or ns.C("ff6060", "нет цены"), 1, 1, 1, 1, 1, 1)
@@ -1721,15 +1734,15 @@ local function UpdateBagRow()
     if not r then return end
     local ic = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(PAYOUT_BAG)
     r.icon:SetTexture(ic or 134400)
-    local v, _, b = OQ.BagValue(PAYOUT_BAG)
-    local last = OQ.BagLastValue and OQ.BagLastValue(PAYOUT_BAG)
-    local tail = v and ((" ~%s (%d)"):format(Gold(v), b.opened) ..
-        (last and (" · последнее: " .. Gold(last)) or "")) or (" " .. ns.C("808080", "нет замеров"))
+    local text = OQ.BagDisplayText(PAYOUT_BAG)
+    local last = OQ.BagLastValue(PAYOUT_BAG)
+    local tail = " " .. text .. (last and (" · последнее: " .. Gold(last)) or "")
     local maxW = r:GetWidth() - 20
     for _, label in ipairs({ ItemName(PAYOUT_BAG) .. ":", "Оплата Консорциума:", "Сумка:" }) do
         r.text:SetText(label .. tail)
-        if r.text:GetStringWidth() <= maxW then break end
+        if r.text:GetStringWidth() <= maxW then return end
     end
+    r.text:SetText("Сумка: " .. text)
 end
 
 local function FillRows()
@@ -2035,7 +2048,7 @@ local function BuildWindow()
         GameTooltip:Show()
     end)
     win.shop:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- (02.11) «Макросы» — создать/обновить макросы панели: Сумка, Травы, «Дальше» (во вкладке «Журнал» — «Очистить»)
+    -- «Макросы» создаёт общий набор для заказов и крафтов.
     win.macros = GridBtn(2, 4, "Макросы", function() OQ.CreateBagMacros() end)
     win.macros:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -2044,6 +2057,9 @@ local function BuildWindow()
         GameTooltip:AddLine("0.0_RainonUI — открыть сумку за заказы", 1, 1, 1)
         GameTooltip:AddLine("0.1_RainonUI — открыть букет трав", 1, 1, 1)
         GameTooltip:AddLine("0.2_RainonUI — нажать «Дальше»", 1, 1, 1)
+        GameTooltip:AddLine("RS Concentration — крафт за концентрацию", 1, 1, 1)
+        GameTooltip:AddLine("RS Cooldown Crafts — крафт по зарядам", 1, 1, 1)
+        GameTooltip:AddLine("Рецепты для крафта выбираются галочками в окне «Крафт за концентрацию».", 0.8, 0.8, 0.8, true)
         GameTooltip:AddLine("Потом /macro → перетащи на панель.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
@@ -2483,6 +2499,40 @@ do
 local PROC_MAX = 5000    -- журнал проков: один крафт = одна короткая запись
 local procCast
 local txCost
+
+local function OilBagCount(id)
+    if not (C_Item and C_Item.GetItemCount) then return nil end
+    local ok, count = pcall(C_Item.GetItemCount, id, false, false, false, false)
+    if ok then return Num(count) end
+end
+
+local function FinishOilSample(oil, id)
+    local sample = oil.pending[id]
+    local count = OilBagCount(id)
+    sample.after = count
+    sample.delta = count and sample.before and count - sample.before or nil
+    oil.before[id], oil.pending[id] = count, nil
+end
+
+local function MeasureOil(ctx, rec)
+    local oil, id = ctx and ctx.oil, rec.i
+    if not oil or oil.before[id] == nil or rec.src ~= "self" then return end
+    -- Keep nearby results in one sample when the bags may have updated together.
+    local sample = oil.pending[id] or rec.bagSample or { before = oil.before[id], records = 0, firstOp = rec.op }
+    if not rec.bagSample then
+        sample.records = sample.records + 1
+        rec.bagSample = sample
+    end
+    oil.pending[id] = sample
+    local revision = (oil.revisions[id] or 0) + 1
+    oil.revisions[id] = revision
+    C_Timer.After(0.75, function()
+        if oil.pending[id] == sample and oil.revisions[id] == revision then
+            FinishOilSample(oil, id)
+        end
+    end)
+end
+
 function OQ.ReadReturns(data)
     local out, valid = {}, true
     local rr = data and data.resourcesReturned
@@ -2495,12 +2545,23 @@ function OQ.ReadReturns(data)
     return out, valid
 end
 function OQ.CaptureCraftCost(recipeID, amount, reagents, _, orderID)
+    local previousOil = txCost and txCost.oil
+    if previousOil then
+        for id, sample in pairs(previousOil.pending) do
+            sample.interrupted = true
+            FinishOilSample(previousOil, id)
+        end
+    end
     txCost, OQ.costContext = nil, nil
     local rid = Num(recipeID)
     if not rid then return end
     local ctx = {recipe=rid, remaining=math.max(1,Num(amount) or 1), plan={}, prices={}, cost=0, np=0,
         complete=true, src=orderID and "order" or "self", orderID=orderID and tostring(orderID)}
     txCost, OQ.costContext = ctx, ctx
+    if rid == 1236491 and not orderID then
+        ctx.oil = { before = { [243733] = OilBagCount(243733), [243734] = OilBagCount(243734) },
+            pending = {}, revisions = {} }
+    end
     local ok, sch = pcall(C_TradeSkillUI.GetRecipeSchematic, rid, false)
     if not ok or type(sch)~="table" then ctx.complete=false; return end
     if Num(sch.quantityMin)==Num(sch.quantityMax) then ctx.base=Num(sch.quantityMin) end
@@ -2576,6 +2637,7 @@ CountProc=function(data)
         pc.rec.quantityOK=pc.rec.base~=nil and pc.rec.n==pc.rec.base+pc.rec.m
         Revalue(pc.rec,ctx)
         pc.agg.best=math.max(pc.agg.best or 0,pc.rec.n)
+        MeasureOil(ctx, pc.rec)
         return
     end
     local cl=current and current.log
@@ -2597,6 +2659,7 @@ CountProc=function(data)
     while #d.procLog>PROC_MAX do table.remove(d.procLog,1) end
     procCast={id=id,op=op,ctx=ctx,rec=rec,agg=agg}
     RememberName(id)
+    MeasureOil(ctx, rec)
 end
 
 end
@@ -2901,6 +2964,14 @@ local function BagFinish()
     local now = InvSnapshot()
     if (o.inv[o.id] or 0) - (now[o.id] or 0) ~= 1 then return end
     o.verified = o.how ~= "count" and o.looted and o.slots > 0 and o.cleared == o.slots
+    -- Direct deposits may arrive without a loot window. Keep the observations for testing.
+    if not o.looted then
+        o.items = o.currencyChanges
+        for id, count in pairs(now) do
+            local gain = count - (o.inv[id] or 0)
+            if gain > 0 and not BAG_SET[id] then o.items["i:" .. id] = gain end
+        end
+    end
     o.money = 0 -- account gold deltas cannot be attributed to this bag
     -- След для проверки (последние 30 открытий, даже пустые).
     local d = DB()
@@ -2908,7 +2979,8 @@ local function BagFinish()
     local nItems = 0
     for _ in pairs(o.items) do nItems = nItems + 1 end
     d.bagDebug[#d.bagDebug + 1] = { t = time(), id = o.id, looted = o.looted or false, bagUpd = o.bagUpd or 0,
-        items = nItems, money = o.money, how = o.how }
+        items = nItems, money = o.money, how = o.how,
+        goldChange = o.gold0 and (Num(GetMoney()) or o.gold0) - o.gold0 }
     while #d.bagDebug > 30 do table.remove(d.bagDebug, 1) end
     -- Keep unconfirmed openings, but never value them as verified loot.
     local bags = BagsDB()
@@ -2918,18 +2990,25 @@ local function BagFinish()
     b.opened = b.opened + 1
     b.money = b.money + o.money
     for k, n in pairs(o.verified and o.items or {}) do
-        RememberName(tostring(k):match("^i:(%d+)"))
         local dr = b.drops[k]
         if not dr then dr = { n = 0, hits = 0 }; b.drops[k] = dr end
         dr.n = dr.n + n
         dr.hits = dr.hits + 1
     end
     local prices = {}
-    for k in pairs(o.items) do local id = tonumber(k:match("^i:(%d+)")); if id then prices[k] = Price(id) end end
+    for k in pairs(o.items) do
+        local id = tonumber(k:match("^i:(%d+)"))
+        if id then
+            RememberName(id)
+            prices[k] = Price(id)
+        end
+    end
     b.recent[#b.recent + 1] = { t = time(), who = PlayerKey(), items = o.items, money = o.money,
-        av = 2, verified = o.verified and true or false, source = "loot-slots", prices = prices }
-    if OQ.BagValueReset then OQ.BagValueReset(o.id) end
+        av = 2, verified = o.verified and true or false,
+        source = o.looted and "loot-slots" or "inventory-delta", prices = prices }
     while #b.recent > BAG_RECENT_MAX do table.remove(b.recent, 1) end
+    OQ.BagValueReset(o.id)
+    OQ.RefreshBagDisplay()
 end
 
 -- «Эй, запомни»: открывается сумка id.
@@ -2940,7 +3019,8 @@ local function BagOpened(id, how, invBefore, goldBefore)
         if session.id == id and (now - session.t) < 0.5 then return end   -- тот же клик (Down+Up)
         BagFinish()
     end
-    session = { id = id, name = ItemName(id), t = now, items = {}, money = 0, gold0 = goldBefore or GetMoney(),
+    session = { id = id, name = ItemName(id), t = now, items = {}, money = 0,
+                gold0 = goldBefore or Num(GetMoney()), currencyChanges = {},
                 inv = invBefore or InvSnapshot(), how = how, pending = {}, slots = 0, cleared = 0 }
     local o = session
     C_Timer.After(2, function() if session == o then BagFinish() end end)   -- страховка
@@ -2964,7 +3044,8 @@ if C_Container and C_Container.UseContainerItem and hooksecurefunc then
 end
 
 local bagEv = CreateFrame("Frame")
-for _, name in ipairs({ "LOOT_READY", "LOOT_SLOT_CLEARED", "LOOT_CLOSED", "PLAYER_ENTERING_WORLD" }) do
+for _, name in ipairs({ "LOOT_READY", "LOOT_OPENED", "LOOT_SLOT_CLEARED", "LOOT_CLOSED",
+                       "CURRENCY_DISPLAY_UPDATE", "PLAYER_ENTERING_WORLD" }) do
     pcall(bagEv.RegisterEvent, bagEv, name)
 end
 bagEv:SetScript("OnEvent", function(_, event, ...)
@@ -2972,10 +3053,20 @@ bagEv:SetScript("OnEvent", function(_, event, ...)
     local o = session
     if not o or o.done then return end
     pcall(function(...)
-        if event == "LOOT_READY" then
+        if event == "CURRENCY_DISPLAY_UPDATE" then
             if o.looted then return end
+            local id, _, change = ...
+            id, change = Num(id), Num(change)
+            if id and id > 0 and change and change > 0 then
+                local key = "c:" .. id
+                o.currencyChanges[key] = (o.currencyChanges[key] or 0) + change
+            end
+        elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
+            if o.looted then return end
+            local count = Num(GetNumLootItems())
+            if not count or count <= 0 then return end
             o.looted = true
-            for i = 1, (GetNumLootItems() or 0) do
+            for i = 1, count do
                 local link = GetLootSlotLink(i)
                 local _, _, qty, currencyID = GetLootSlotInfo(i)
                 qty = Num(qty) or 1
@@ -2994,7 +3085,7 @@ bagEv:SetScript("OnEvent", function(_, event, ...)
                 o.items[x.key] = (o.items[x.key] or 0) + x.qty
             end
         elseif event == "LOOT_CLOSED" then
-            -- деньги из сумки приходят при сборе добычи — берём разницу чуть позже
+            -- Give the inventory time to reflect the consumed container.
             C_Timer.After(0.3, function() if session == o then BagFinish() end end)
         end
     end, ...)
@@ -3022,6 +3113,7 @@ lockEv:SetScript("OnEvent", function(_, event, bag, slot)
             end
         elseif event == "BAG_UPDATE_DELAYED" then
             local now = InvSnapshot()
+            if session then session.bagUpd = (session.bagUpd or 0) + 1 end
             if lastInv and not (session and not session.done) then
                 for _, id in ipairs(BAG_IDS) do
                     if (lastInv[id] or 0) - (now[id] or 0) == 1 then
@@ -3032,9 +3124,9 @@ lockEv:SetScript("OnEvent", function(_, event, bag, slot)
                     end
                 end
             end
-            lastInv, lastGold = now, GetMoney()
+            lastInv, lastGold = now, Num(GetMoney())
         elseif event == "PLAYER_ENTERING_WORLD" then
-            lastInv, lastGold = InvSnapshot(), GetMoney()
+            lastInv, lastGold = InvSnapshot(), Num(GetMoney())
         end
     end)
 end)
@@ -3200,38 +3292,51 @@ local BAG_MACROS = {
     { name = "0.0_RainonUI", body = "/use item:246585" },                      -- Сумка (Оплата Консорциума)
     { name = "0.1_RainonUI", body = "/use item:245650\n/use item:245651" },    -- Травы: сначала кач.1, потом кач.2
     { name = "0.2_RainonUI", body = "/rsorders next" },                        -- (02.11) «Дальше» в очереди заказов
+    { name = "RS Concentration", body = "/rscraft concentration", concentration = true },
+    { name = "RS Cooldown Crafts", body = "/rscraft cooldowns", icon = 612962 },
 }
 function OQ.CreateBagMacros()
     if InCombatLockdown() then ns.Print("нельзя создавать макросы в бою."); return end
     local created, updated, failed = 0, 0, 0
     for _, mac in ipairs(BAG_MACROS) do
+        local icon = mac.icon or 134400
+        if mac.concentration then
+            local currency = C_CurrencyInfo.GetCurrencyInfo(3161)
+            icon = currency and currency.iconFileID or "Interface\\Icons\\ui_concentration"
+        end
         local idx = GetMacroIndexByName and GetMacroIndexByName(mac.name) or 0
         if idx and idx > 0 then
-            if pcall(EditMacro, idx, mac.name, 134400, mac.body) then updated = updated + 1 else failed = failed + 1 end
+            if pcall(EditMacro, idx, mac.name, icon, mac.body) then updated = updated + 1 else failed = failed + 1 end
         elseif ((GetNumMacros and GetNumMacros()) or 0) >= 120 then
             failed = failed + 1
         else
-            if pcall(CreateMacro, mac.name, 134400, mac.body, false) then created = created + 1 else failed = failed + 1 end
+            if pcall(CreateMacro, mac.name, icon, mac.body, false) then created = created + 1 else failed = failed + 1 end
         end
     end
-    ns.Print(("макросы: создано %d, обновлено %d%s. 0.0_RainonUI — Сумка, 0.1_RainonUI — Травы, 0.2_RainonUI — «Дальше» (" ..
-        ns.C("FFFF00", "/macro") .. ", перетащи на панель)."):format(created, updated,
+    ns.Print(("макросы: создано %d, обновлено %d%s. Готовые макросы в " ..
+        ns.C("FFFF00", "/macro") .. "."):format(created, updated,
         failed > 0 and (", не удалось " .. failed .. " — нет места в общих макросах") or ""))
 end
 
 -- Средняя цена одной сумки по Auctionator (+ деньги). Валюта отдельно (не в золоте).
--- (02.11) Цена ПОСЛЕДНЕГО открытия сумки: что выпало × текущие цены Auctionator (+ деньги).
+local function BagRecordValue(r)
+    local sum, missing = r.money or 0, 0
+    for k, cnt in pairs(r.items or {}) do
+        local iid = tonumber(tostring(k):match("^i:(%d+)"))
+        if iid then
+            local p = Price(iid)
+            if p and p > 0 then sum = sum + p * cnt else missing = missing + 1 end
+        end
+    end
+    return sum, missing
+end
+
 function OQ.BagLastValue(id)
     local b = BagsDB()[id]
     local r = b and b.recent and b.recent[#b.recent]
     if not r then return nil end
-    local sum = r.money or 0
-    for k, cnt in pairs(r.items or {}) do
-        local iid = tonumber(tostring(k):match("^i:(%d+)"))
-        local p = iid and Price(iid)
-        if p then sum = sum + p * cnt end
-    end
-    return sum
+    local sum = BagRecordValue(r)
+    if sum > 0 then return sum end
 end
 
 -- (02.11) кэш на 30с: строки очереди спрашивают цену сумки при каждой перерисовке.
@@ -3242,29 +3347,59 @@ function OQ.BagValue(id)
     local c = bagValCache[id]
     local now = GetTime()
     if c and (now - c.t) < 30 then return c[1], c[2], c[3], c[4] end
-    local v, np, b, n = BagValueRaw(id)
-    bagValCache[id] = { t = now, v, np, b, n }
+    local v, np, b, n, estimate, estimateCount, estimatePartial = BagValueRaw(id)
+    bagValCache[id] = { t = now, v, np, b, n, estimate = estimate,
+        estimateCount = estimateCount, estimatePartial = estimatePartial }
     return v, np, b, n
 end
 BagValueRaw = function(id)
     local b = BagsDB()[id]
     if not b then return nil end
     local sum, missing, n = 0, 0, 0
+    local estimateSum, estimateCount = 0, 0
+    local estimatePartial = false
     for _, r in ipairs(b.recent or {}) do
-        if r.av == 2 and r.verified then
-            n = n + 1
-            sum = sum + (r.money or 0)
-            for k, q in pairs(r.items or {}) do
-                local iid = tonumber(tostring(k):match("^i:(%d+)"))
-                if iid then
-                    local p = Price(iid)
-                    if p then sum = sum + p*q else missing = missing+1 end
-                end
+        if r.av == 2 then
+            if r.verified then
+                local value, noPrice = BagRecordValue(r)
+                n, sum, missing = n + 1, sum + value, missing + noPrice
+            elseif r.source == "inventory-delta" and next(r.items or {}) then
+                local value, noPrice = BagRecordValue(r)
+                estimateSum, estimateCount = estimateSum + value, estimateCount + 1
+                estimatePartial = estimatePartial or noPrice > 0
             end
         end
     end
-    if n == 0 or missing > 0 then return nil, missing, b, n end
-    return sum/n, 0, b, n
+    local verified = n > 0 and missing == 0 and sum / n or nil
+    local estimate = estimateSum > 0 and estimateSum / estimateCount or nil
+    return verified, missing, b, n, estimate, estimateCount, estimatePartial
+end
+
+function OQ.BagDisplayText(id, quantity)
+    local value, _, b, n = OQ.BagValue(id)
+    if value then return ("~%s (%d)"):format(Gold(value * (quantity or 1)), n) end
+    local cached = bagValCache[id]
+    if cached.estimate then
+        local label = cached.estimatePartial and "по сумкам, часть без цены" or "по сумкам"
+        return ("~%s (%d, %s)"):format(Gold(cached.estimate * (quantity or 1)), cached.estimateCount, label)
+    end
+    if b and b.opened > 0 then
+        local recorded = (n or 0) + (cached.estimateCount or 0)
+        if recorded > 0 then return ("с добычей %d из %d · без цены"):format(recorded, b.opened) end
+        return ("открыто %d · состав не записан"):format(b.opened)
+    end
+    return ns.C("808080", "нет замеров")
+end
+
+local function BagLootName(key)
+    local id = tonumber(key:match("^i:(%d+)"))
+    if id then
+        local names = DB().names
+        return (names and names[id]) or ItemName(id)
+    end
+    local currencyID = tonumber(key:match("^c:(%d+)"))
+    local info = currencyID and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(currencyID)
+    return (info and info.name) or key
 end
 
 -- Подсказка сумки: сколько раз открыли и средняя цена.
@@ -3273,11 +3408,16 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum.Too
         if not data or IsSecret(data.id) then return end
         local id = Num(data.id)
         if not id then return end
-        -- (02.11) было «id and OQ.BagValue(id)» — так Lua отдаёт только ПЕРВОЕ значение, b = nil → ошибка
-        local v, noPrice, b = OQ.BagValue(id)
-        if not (v and b) then return end
-        tt:AddLine(("RainonUI: открыто %d · в среднем ~%s за штуку%s"):format(b.opened, Gold(v),
-            (noPrice and noPrice > 0) and (" (без цены: " .. noPrice .. ")") or ""), 0.4, 0.8, 1)
+        local b = BAG_SET[id] and BagsDB()[id]
+        if not b then return end
+        tt:AddLine("RainonUI: " .. OQ.BagDisplayText(id), 0.4, 0.8, 1)
+        local last = b.recent and b.recent[#b.recent]
+        if last and next(last.items or {}) then
+            tt:AddLine(last.source == "inventory-delta" and "Последнее открытие, по сумкам" or "Последнее открытие", 1, 0.82, 0)
+            for key, count in pairs(last.items) do
+                tt:AddLine(("%d × %s"):format(count, BagLootName(key)), 1, 1, 1, true)
+            end
+        end
     end)
 end
 
@@ -3286,21 +3426,14 @@ function OQ.BagReport()
     local any = false
     for id, b in pairs(BagsDB()) do
         any = true
-        local v, noPrice = OQ.BagValue(id)
-        ns.Print(("%s: открыто %d, в среднем ~%s (деньги ~%s)%s"):format(b.name or ItemName(id), b.opened,
-            Gold(v), Gold(b.money / math.max(b.opened, 1)), (noPrice and noPrice > 0) and (", без цены: " .. noPrice) or ""))
+        ns.Print(("%s: %s"):format(b.name or ItemName(id), OQ.BagDisplayText(id)))
         local list = {}
         for k, dr in pairs(b.drops) do list[#list + 1] = { k = k, dr = dr } end
         table.sort(list, function(a, c) return a.dr.n > c.dr.n end)
         for i = 1, math.min(8, #list) do
             local k, dr = list[i].k, list[i].dr
-            local iid = tonumber(k:match("^i:(%d+)"))
-            local nm
-            if iid then nm = ItemName(iid) else
-                local ci = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(tonumber(k:sub(3)))
-                nm = (ci and ci.name) or k
-            end
-            ns.Print(("   %s: всего %d, выпадало в %d из %d (в среднем %.1f)"):format(nm, dr.n, dr.hits, b.opened, dr.n / b.opened))
+            ns.Print(("   %s: всего %d, выпадало в %d из %d (в среднем %.1f)"):format(
+                BagLootName(k), dr.n, dr.hits, b.opened, dr.n / b.opened))
         end
     end
     if not any then ns.Print("Очередь заказов: сумки ещё не открывались (или модуль выключен).") end
@@ -3735,8 +3868,7 @@ local function UpdateAuctLine()
     if rid ~= (ns.Roster and ns.Roster.HERBS_RECIPE) then AL.l1:Hide(); AL.l2:Hide(); return end
     local parts, last = {}, {}
     for _, row in ipairs({ { id = 245650, q = 1 }, { id = 245651, q = 2 } }) do
-        local v, _, b = OQ.BagValue(row.id)
-        parts[#parts + 1] = Q(row.q, nil, row.id) .. " " .. (v and ("~%s (%d)"):format(Gold(v), b.opened) or ns.C("808080", "нет замеров"))
+        parts[#parts + 1] = Q(row.q, nil, row.id) .. " " .. OQ.BagDisplayText(row.id)
         -- (02.11) вторая строка: сколько стоило содержимое последнего открытого букета
         local lv = OQ.BagLastValue and OQ.BagLastValue(row.id)
         last[#last + 1] = Q(row.q, nil, row.id) .. " " .. (lv and Gold(lv) or ns.C("808080", "—"))
@@ -3745,6 +3877,11 @@ local function UpdateAuctLine()
     AL.l1:Show()
     AL.l2:SetText("Последнее открытие: " .. table.concat(last, "  ·  "))
     AL.l2:Show()
+end
+
+function OQ.RefreshBagDisplay()
+    if win and win:IsShown() then pcall(UpdateBagRow) end
+    pcall(UpdateAuctLine)
 end
 local function HookAuctionator()
     if AL.hooked then return end

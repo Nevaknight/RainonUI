@@ -77,6 +77,14 @@ local function ReadSynthRank()
 end
 Roster.ReadSynthRank = ReadSynthRank
 
+function Roster.GetRechargePeriod(recipeID)
+    if recipeID == Roster.HERBS_RECIPE then return 18 * 3600 end
+    if recipeID == Roster.WONDROUS_RECIPE then
+        local rank = ReadSynthRank()
+        if rank then return PeriodForSynthRank(rank) end
+    end
+end
+
 local function ReadCharges(recipeID)
     if not (C_TradeSkillUI and C_TradeSkillUI.GetRecipeCooldown) then return nil end
     -- Рецепт должен быть ИЗУЧЕН. Но поле learned доступно не всегда (данные

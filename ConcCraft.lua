@@ -25,6 +25,18 @@ local RECIPES = {
     { id = 1230763, name = "Сплав высокой пробы", icon = 7548919 },
 }
 
+local DERIVATE = 242651
+local RECYCLE_POTIONS = 1233129
+local RECYCLE_RECIPE = {
+    id = RECYCLE_POTIONS, name = "Крафт вытяжки",
+    icon = "Interface\\Icons\\item_alchemiststoneb",
+}
+local POTIONS = {
+    { id = 241307, name = "Освежающая сыворотка", icon = 2057573 },
+    { id = 241339, name = "Тоник просветления", icon = 236876 },
+    { id = 268954, name = "Энтропийный экстракт", icon = 1416156 },
+}
+
 local REAGENT_BASIC = (Enum and Enum.CraftingReagentType and Enum.CraftingReagentType.Basic) or 1
 local function Num(v) if issecretvalue and issecretvalue(v) then return nil end return tonumber(v) end
 local function C(hex, s) return (ns.C and ns.C(hex, s)) or s end
@@ -34,6 +46,53 @@ local function Count(id)
     return (ok and Num(n)) or 0
 end
 local function DBc() ns.db.concCraft = ns.db.concCraft or {}; return ns.db.concCraft end
+local function BagCount(id)
+    return Num(C_Item.GetItemCount(id, false, false, false, false)) or 0
+end
+
+local function MacroSelectionKey(recipe)
+    return recipe.charges and "cooldownRecipes" or "concentrationRecipes"
+end
+
+local function MacroSelected(recipe)
+    local selection = DBc()[MacroSelectionKey(recipe)]
+    return selection ~= nil and selection[recipe.id] == true
+end
+
+local function SetMacroSelection(recipe, selected)
+    local db = DBc()
+    local key = MacroSelectionKey(recipe)
+    db[key] = db[key] or {}
+    db[key][recipe.id] = selected
+    ns.SendMessage("RAINON_CRAFT_SELECTION_CHANGED")
+end
+
+local function RecycleTarget(schematic)
+    local id = DBc().recyclePotion
+    if not id or id == 0 then return nil, 0, "Выбери зелье первого ранга в настройках переработки." end
+    local supported = false
+    for _, potion in ipairs(POTIONS) do
+        if potion.id == id then supported = true; break end
+    end
+    if not supported then return nil, 0, "Выбери зелье первого ранга в настройках переработки." end
+
+    local needed = Num(schematic.quantityMax)
+    if not needed or needed < 1 then return nil, 0, "Игра не дала состав переработки." end
+    for _, allowed in ipairs(C_TradeSkillUI.GetSalvagableItemIDs(RECYCLE_POTIONS) or {}) do
+        if allowed == id then
+            local best, crafts = nil, 0
+            for _, target in ipairs(C_TradeSkillUI.GetCraftingTargetItems({ id }) or {}) do
+                if Num(target.itemID) == id and target.itemGUID then
+                    local count = math.floor((Num(target.quantity) or 0) / needed)
+                    if count > crafts then best, crafts = target, count end
+                end
+            end
+            if best then return best, crafts end
+            return nil, 0, "Нужно зелий в одной стопке: " .. needed
+        end
+    end
+    return nil, 0, "Игра не принимает выбранное зелье."
+end
 local function HerbQuality(slot)
     local d = DBc()
     local quality = (d.herbQuality and d.herbQuality[slot]) or d.herbDefaultQuality
@@ -97,17 +156,21 @@ local function ItemForQuality(slot, quality)
     end
 end
 
+local function PickReagent(recipe, slot)
+    if #slot.ids == 1 then return slot.ids[1] end
+    local quality = SelectedQuality(recipe, slot)
+    return ItemForQuality(slot, quality), quality
+end
+
 -- Реагенты для игры и число крафтов, на которое их хватает.
 local function Plan(r, info)
     local slots, sch = ReadSlots(r.id)
     if not slots then return nil, 0, "Игра не дала схему рецепта" end
     local tbl, byReag, short = {}, math.huge, nil
     for _, slot in ipairs(slots) do
-        local pick = slot.ids[1]
+        local pick, quality = PickReagent(r, slot)
+        if not pick then return nil, 0, "Игра не дала реагент качества " .. quality end
         if #slot.ids > 1 then
-            local quality = SelectedQuality(r, slot)
-            pick = ItemForQuality(slot, quality)
-            if not pick then return nil, 0, "Игра не дала реагент качества " .. quality end
             tbl[#tbl + 1] = { reagent = { itemID = pick }, quantity = slot.qty, dataSlotIndex = slot.slot }
         end
         local have = Count(pick)
@@ -120,7 +183,7 @@ local function Plan(r, info)
             end
         end
     end
-    if ns.OrderQueue and ns.OrderQueue.PlanFinishing then
+    if r ~= RECYCLE_RECIPE and ns.OrderQueue and ns.OrderQueue.PlanFinishing then
         local extras, limit = ns.OrderQueue.PlanFinishing(r.id, sch, info)
         for _, allocation in ipairs(extras) do tbl[#tbl+1] = allocation end
         if limit < byReag then
@@ -128,7 +191,30 @@ local function Plan(r, info)
             short = "Усилителей хватает на " .. limit .. " крафт(а)"
         end
     end
-    return tbl, byReag, short
+    return tbl, byReag, short, sch
+end
+
+local function CheckRecycle()
+    local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+    if not (page and page:IsVisible()) then return end
+    if Professions and Professions.InLocalCraftingMode and not Professions.InLocalCraftingMode() then return end
+    local base = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+    local profession = base and Num(base.profession)
+    if profession and profession ~= Enum.Profession.Alchemy then return end
+    local info = C_TradeSkillUI.GetRecipeInfo(RECYCLE_POTIONS)
+    if not (info and info.learned) then return end
+    if info.disabled or info.craftable == false then
+        return { n = 0, why = info.disabledReason }
+    end
+    if C_TradeSkillUI.GetRecipeRequirements then
+        for _, requirement in ipairs(C_TradeSkillUI.GetRecipeRequirements(RECYCLE_POTIONS) or {}) do
+            if requirement.met == false then return { n = 0, why = "Требуется: " .. requirement.name } end
+        end
+    end
+    local reagents, available, missing, schematic = Plan(RECYCLE_RECIPE, info)
+    if not reagents or available == 0 then return { n = 0, why = missing } end
+    local target, count, reason = RecycleTarget(schematic)
+    return { n = math.min(available, count), why = reason, tbl = reagents, target = target }
 end
 
 -- Сколько крафтов можно сейчас и почему не больше
@@ -163,9 +249,94 @@ local function Check(r)
     return res
 end
 
+local function FullBatchSchedule(recipe, saved)
+    local ok, cooldown, _, charges, maximum = pcall(C_TradeSkillUI.GetRecipeCooldown, recipe.id)
+    if not ok then return end
+    charges, maximum, cooldown = Num(charges), Num(maximum), Num(cooldown)
+    if not charges or not maximum or maximum < 1 then return end
+
+    local period = ns.Roster.GetRechargePeriod(recipe.id) or (saved and saved.synthRank and saved.period)
+    if not period or period <= 0 then return end
+    local missing = math.max(0, maximum - charges)
+    local nextCharge = cooldown and cooldown > 0 and cooldown or period
+    local first = missing == 0 and 0 or math.ceil(nextCharge + (missing - 1) * period)
+
+    local slots = ReadSlots(recipe.id)
+    if not slots then return end
+    local costs = {}
+    for _, slot in ipairs(slots) do
+        local id = PickReagent(recipe, slot)
+        if not id then return end
+        costs[id] = (costs[id] or 0) + maximum * slot.qty
+    end
+    if not costs[DERIVATE] then return end
+    return { costs = costs, first = first, interval = maximum * period }
+end
+
+local function DerivateForecast()
+    local schedules, stock, firstRound = {}, {}, {}
+    local guid = UnitGUID("player")
+    local current = guid and ns.db.roster and ns.db.roster[guid]
+    for _, recipe in ipairs(RECIPES) do
+        if recipe.charges and MacroSelected(recipe) then
+            local info = C_TradeSkillUI.GetRecipeInfo(recipe.id)
+            if info and info.learned == false then return "Рецепт не изучен", "999999" end
+            local saved = current and current.charges and current.charges[recipe.id]
+            local schedule = FullBatchSchedule(recipe, saved)
+            if not schedule then return "Ждём данные", "999999" end
+            schedules[#schedules + 1] = schedule
+            for id, cost in pairs(schedule.costs) do
+                if stock[id] == nil then stock[id] = id == DERIVATE and BagCount(id) or Count(id) end
+                firstRound[id] = (firstRound[id] or 0) + cost
+            end
+        end
+    end
+    if #schedules == 0 then return end
+    for id, cost in pairs(firstRound) do
+        if stock[id] < cost then return "Не хватает", "FF6060" end
+    end
+
+    local function BatchesBy(schedule, seconds)
+        if seconds < schedule.first then return 0 end
+        return 1 + math.floor((seconds - schedule.first) / schedule.interval)
+    end
+
+    local function CanAfford(seconds)
+        local used = {}
+        for _, schedule in ipairs(schedules) do
+            local batches = BatchesBy(schedule, seconds)
+            for id, cost in pairs(schedule.costs) do
+                used[id] = (used[id] or 0) + batches * cost
+                if used[id] > stock[id] then return false end
+            end
+        end
+        return true
+    end
+
+    local sample = schedules[1]
+    local low = 0
+    -- This timestamp includes more full batches of the first recipe than the extract can cover.
+    local high = sample.first + math.floor(stock[DERIVATE] / sample.costs[DERIVATE]) * sample.interval
+    while low + 1 < high do
+        local middle = math.floor((low + high) / 2)
+        if CanAfford(middle) then low = middle else high = middle end
+    end
+
+    local total, last = 0, 0
+    for _, schedule in ipairs(schedules) do
+        local batches = BatchesBy(schedule, low)
+        total = total + batches
+        if batches > 0 then last = math.max(last, schedule.first + (batches - 1) * schedule.interval) end
+    end
+    if total <= #schedules + 1 then return "Последний крафт", "FFD100" end
+    local days = math.ceil(last / 86400)
+    return "до ~" .. date("%d.%m", GetServerTime() + days * 86400), "1EFF00"
+end
+
 -- ── Окно ──────────────────────────────────────────────────────────────────
 local win, rows = nil, {}
 local dismissed = false
+local manualOpen = false
 local moving = false
 local ROW_H = 24
 local W = (ns.OrderQueue and ns.OrderQueue.WINDOW_WIDTH) or 400
@@ -310,16 +481,21 @@ local function SavePos()
 end
 
 local Refresh
-local function Craft(r)
-    if InCombatLockdown and InCombatLockdown() then return end
-    if not (ns.ProfEnabled() and ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
-    local profession = Buffs and Buffs.CurrentProfession()
-    local _, gate = BuffState(profession)
-    if gate then Refresh(); return end
-    local res = Check(r)
-    if not res then return end
-    if res.n <= 0 then ns.Print(C("71d5ff", r.name) .. ": " .. C("ff6060", res.why or "сейчас нельзя")); return end
-    local ok, err = pcall(C_TradeSkillUI.CraftRecipe, r.id, res.n, res.tbl, nil, nil, res.cost ~= nil)
+local macroCursor = {}
+local lastMacroCraft = -math.huge
+
+local function StartCraft(r, res)
+    local ok, err
+    if r == RECYCLE_RECIPE then
+        local location = C_Item.GetItemLocation(res.target.itemGUID)
+        if not (location and location:IsValid()) then
+            Refresh()
+            return false
+        end
+        ok, err = pcall(C_TradeSkillUI.CraftSalvage, r.id, res.n, location, res.tbl, false)
+    else
+        ok, err = pcall(C_TradeSkillUI.CraftRecipe, r.id, res.n, res.tbl, nil, nil, res.cost ~= nil)
+    end
     if ok then
         ns.Print(C("71d5ff", r.name) .. ": " .. C("1eff00", "крафтов " .. res.n) ..
             (res.cost and (" (концентрация " .. res.have .. ", 1 крафт = " .. res.cost .. ")") or "") ..
@@ -328,6 +504,112 @@ local function Craft(r)
         ns.Print(C("71d5ff", r.name) .. ": " .. C("ff6060", "игра не начала крафт — " .. tostring(err)))
     end
     C_Timer.After(0.5, function() if Refresh then Refresh() end end)
+    return ok
+end
+
+local function CraftInProgress()
+    return UnitCastingInfo("player") or UnitChannelInfo("player")
+        or (Num(C_TradeSkillUI.GetRemainingRecasts()) or 0) > 0
+end
+
+local function Craft(r)
+    if InCombatLockdown and InCombatLockdown() then return end
+    if not (ns.ProfEnabled() and ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
+    local res
+    if r == RECYCLE_RECIPE then
+        if CraftInProgress() then return end
+        res = CheckRecycle()
+    else
+        local profession = Buffs and Buffs.CurrentProfession()
+        local _, gate = BuffState(profession)
+        if gate then Refresh(); return end
+        res = Check(r)
+    end
+    if not res then return end
+    if res.n <= 0 then ns.Print(C("71d5ff", r.name) .. ": " .. C("ff6060", res.why or "сейчас нельзя")); return end
+    StartCraft(r, res)
+end
+
+local function MacroCraft(mode)
+    if not ns.ProfEnabled() then return end
+    if InCombatLockdown() then return end
+    local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+    if not (page and page:IsVisible()) or (Professions and Professions.InLocalCraftingMode and not Professions.InLocalCraftingMode()) then
+        ns.Print("Сначала открой вкладку крафта нужной профессии.")
+        return
+    end
+    if GetTime() - lastMacroCraft < 0.5 or CraftInProgress() then return end
+
+    local _, gate = BuffState(Buffs and Buffs.CurrentProfession())
+    if gate then
+        ns.Print("Перед крафтом примени «" .. gate.title .. "».")
+        return
+    end
+
+    local cooldowns = mode == "cooldowns"
+    local cursor = macroCursor[mode] or 0
+    for offset = 1, #RECIPES do
+        local index = (cursor + offset - 1) % #RECIPES + 1
+        local recipe = RECIPES[index]
+        if MacroSelected(recipe) and ((cooldowns and recipe.charges) or (not cooldowns and recipe.conc ~= false)) then
+            local info = C_TradeSkillUI.GetRecipeInfo(recipe.id)
+            if info and info.learned and not info.disabled and info.craftable ~= false then
+                local res = Check(recipe)
+                if res and res.n > 0 and (cooldowns or res.cost) then
+                    if StartCraft(recipe, res) then
+                        macroCursor[mode] = index
+                        lastMacroCraft = GetTime()
+                    end
+                    return
+                end
+            end
+        end
+    end
+    ns.Print(cooldowns and "Сейчас нет доступных отмеченных крафтов по зарядам."
+        or "Сейчас нет доступных отмеченных крафтов за концентрацию.")
+end
+
+SLASH_RAINONUICRAFT1 = "/rscraft"
+SlashCmdList.RAINONUICRAFT = function(text)
+    local mode = strtrim(text):lower()
+    if mode == "concentration" or mode == "cooldowns" then MacroCraft(mode) end
+end
+
+local recycleForm
+local recycleAllocation
+
+local function FillRecyclePotion(form, replace)
+    if not ns.ProfEnabled() or InCombatLockdown() then return end
+    local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+    if not (page and page:IsVisible() and form and form.salvageSlot) then return end
+    if Professions and Professions.InLocalCraftingMode and not Professions.InLocalCraftingMode() then return end
+    local info = form:GetRecipeInfo()
+    if not (info and info.learned and Num(info.recipeID) == RECYCLE_POTIONS) then return end
+    local transaction = form:GetTransaction()
+    local selected = transaction:GetSalvageAllocation()
+    if selected and (not replace or selected ~= recycleAllocation) then return end
+
+    local schematic = transaction:GetRecipeSchematic()
+    local target = schematic and RecycleTarget(schematic)
+    local item = target and Item:CreateFromItemGUID(target.itemGUID)
+
+    if selected or item then
+        recycleAllocation = item
+        transaction:SetSalvageAllocation(item)
+        if item then form.salvageSlot:SetItem(item) else form.salvageSlot:ClearReagent() end
+        form:TriggerEvent(ProfessionsRecipeSchematicFormMixin.Event.AllocationsModified)
+    end
+end
+
+local function HookRecycleForm()
+    local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+    local form = page and page.SchematicForm
+    if not (form and form.Init) then return end
+    if recycleForm ~= form then
+        recycleForm = form
+        hooksecurefunc(form, "Init", function(self) FillRecyclePotion(self) end)
+    end
+    FillRecyclePotion(form)
 end
 
 local function Build()
@@ -361,7 +643,10 @@ local function Build()
     end
 
     local close = win.CloseButton
-    close:HookScript("OnClick", function() dismissed = true end)
+    close:HookScript("OnClick", function()
+        dismissed = true
+        manualOpen = false
+    end)
     local level = close:GetFrameLevel()
     for _, region in ipairs({ "NineSlice", "TitleContainer" }) do
         if win[region] then level = math.max(level, win[region]:GetFrameLevel()) end
@@ -454,10 +739,23 @@ local function Row(i)
     r.icon:SetPoint("LEFT", r.btn, "RIGHT", ROW_GAP, 0)
     r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", ROW_GAP, 0)
-    r.name:SetPoint("RIGHT", -44, 0)
     r.name:SetJustifyH("LEFT")
+    r.name:SetWordWrap(false)
     r.info = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.info:SetPoint("RIGHT", 0, 0)
+    r.check = ns.MakeCheckButton(r)
+    r.check:SetSize(24, 24)
+    r.check:SetPoint("RIGHT", -46, 0)
+    r.check:SetScript("OnClick", function(self)
+        SetMacroSelection(r.recipe, self:GetChecked() and true or false)
+    end)
+    r.check:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(r.recipe.charges and "Включить в макрос крафта по зарядам"
+            or "Включить в макрос крафта за концентрацию")
+        GameTooltip:Show()
+    end)
+    r.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r.btn:SetScript("OnClick", function() if r.recipe then Craft(r.recipe) end end)
     r.btn:SetScript("OnEnter", function(self)
         if r.buff then
@@ -484,11 +782,22 @@ end
 
 local function UpdateRow(row, recipe, res, gate, ready)
     local enabled = gate and ready or (not gate and res.n > 0)
-    if row.recipe ~= recipe then row.icon:SetTexture(OutputIcon(recipe)) end
+    local recycling = recipe == RECYCLE_RECIPE
+    if row.recipe ~= recipe then
+        row.icon:SetTexture(recycling and (C_Item.GetItemIconByID(DERIVATE) or recipe.icon) or OutputIcon(recipe))
+        row.name:SetPoint("RIGHT", recycling and -44 or -74, 0)
+    end
     row.recipe, row.res, row.buff, row.buffReady = recipe, res, gate, gate and ready
+    row.check:SetShown(not recycling)
+    if not recycling then row.check:SetChecked(MacroSelected(recipe)) end
     local name = recipe.name
+    local nameText = enabled and name or C("808080", name)
+    if recycling then
+        local forecast, color = DerivateForecast()
+        if forecast then nameText = nameText .. " · " .. C(color, forecast) end
+    end
     row.icon:SetDesaturated(not enabled)
-    row.name:SetText(enabled and name or C("808080", name))
+    row.name:SetText(nameText)
     row.info:SetText(enabled and res.n > 0 and C("1eff00", "×" .. res.n) or C("808080", "×0"))
     row.btn:SetText(gate and "Бафф" or "Крафт")
     -- Only the separate secure button can receive a buff click.
@@ -498,7 +807,8 @@ end
 
 local auraWatcher = CreateFrame("Frame")
 Refresh = function()
-    if not ns.db or not ns.ProfEnabled() or ns.db.features.concCraft == false or dismissed
+    if not ns.db or not ns.ProfEnabled() or dismissed
+        or (ns.db.features.concCraft == false and not manualOpen)
         or not (ProfessionsFrame and ProfessionsFrame:IsShown()) then
         auraWatcher:UnregisterEvent("UNIT_AURA")
         if win then
@@ -521,7 +831,13 @@ Refresh = function()
             UpdateRow(Row(n), rec, res, gate, ready)
         end
     end
-    if n == 0 and #missing == 0 then
+    local recycling = CheckRecycle()
+    if recycling then
+        if not win then Build() end
+        n = n + 1
+        UpdateRow(Row(n), RECYCLE_RECIPE, recycling)
+    end
+    if n == 0 and #missing == 0 and not manualOpen then
         if win then
             win:Hide()
             SyncBuffButtons()
@@ -541,9 +857,17 @@ end
 
 ns.RegisterEvent("TRADE_SKILL_SHOW", function()
     dismissed = false
-    C_Timer.After(0.3, Refresh)
+    manualOpen = false
+    HookRecycleForm()
+    C_Timer.After(0.3, function()
+        HookRecycleForm()
+        Refresh()
+    end)
 end)
 ns.RegisterEvent("TRADE_SKILL_CLOSE", function()
+    manualOpen = false
+    macroCursor = {}
+    recycleAllocation = nil
     auraWatcher:UnregisterEvent("UNIT_AURA")
     if win then win:Hide() end
 end)
@@ -551,7 +875,16 @@ for _, e in ipairs({ "TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED
     "CURRENCY_DISPLAY_UPDATE", "TRADE_SKILL_ITEM_CRAFTED_RESULT", "PLAYER_REGEN_ENABLED" }) do
     ns.RegisterEvent(e, Refresh)
 end
-ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", Refresh)
+ns.RegisterMessage("RAINON_PROFESSIONS_TOGGLED", function()
+    if ns.ProfEnabled() then
+        HookRecycleForm()
+    else
+        manualOpen = false
+        macroCursor = {}
+    end
+    Refresh()
+end)
+ns.RegisterMessage("RAINON_CRAFT_SELECTION_CHANGED", Refresh)
 local auraQueued = false
 auraWatcher:SetScript("OnEvent", function()
     if auraQueued or not (ProfessionsFrame and ProfessionsFrame:IsShown()) then return end
@@ -563,7 +896,22 @@ ns.ConcCraft = {
     RECIPES = RECIPES,
     Check = Check,
     Refresh = function() Refresh() end,
+    Open = function()
+        if not ns.ProfEnabled() then return end
+        if InCombatLockdown() then
+            ns.Print("Крафт за концентрацию: открой окно после боя.")
+            return
+        end
+        if not (ProfessionsFrame and ProfessionsFrame:IsShown()) then
+            ns.Print("Крафт за концентрацию: сначала открой окно профессии.")
+            return
+        end
+        dismissed = false
+        manualOpen = true
+        Refresh()
+    end,
     ApplyVisibility = function()
+        manualOpen = false
         dismissed = false
         Refresh()
     end,
@@ -663,12 +1011,49 @@ function ns.ConcCraft.BuildPhialOption(parent, anchor, dropdown, onChange)
     UpdateIcon()
 end
 
+function ns.ConcCraft.BuildRecycleOption(parent, dropdown, makeSpoilerBar)
+    local options = { { text = "Выключено", value = 0 } }
+    for _, potion in ipairs(POTIONS) do
+        options[#options + 1] = {
+            text = "|T" .. potion.icon .. ":16|t " .. potion.name,
+            value = potion.id,
+        }
+    end
+    local bar, updateGlyph = makeSpoilerBar(parent, "Переработка зелий", "Interface\\Icons\\ui_profession_alchemy", 32)
+    bar:SetPoint("TOPLEFT", 8, 0)
+    bar:SetPoint("TOPRIGHT", -8, 0)
+    local picker = dropdown(parent, 268,
+        function() return DBc().recyclePotion or 0 end,
+        function(itemID)
+            DBc().recyclePotion = itemID
+            FillRecyclePotion(recycleForm, true)
+            Refresh()
+        end, options)
+    picker:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 12, -6)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("LEFT", picker, "RIGHT", 8, 0)
+    label:SetText("Зелье первого ранга")
+    picker:Hide()
+    label:Hide()
+    parent:SetHeight(32)
+    updateGlyph(true)
+    bar:SetScript("OnClick", function()
+        local expanded = not picker:IsShown()
+        picker:SetShown(expanded)
+        label:SetShown(expanded)
+        updateGlyph(not expanded)
+        parent:SetHeight(expanded and 66 or 32)
+    end)
+end
+
 function ns.ConcCraft.BuildOptions(parent, dropdown, makeSpoilerBar)
-    local y = 0
-    local hint = parent:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT",12,y); hint:SetWidth(572); hint:SetJustifyH("LEFT")
+    local rowGap = 8
+    local hint = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    hint:SetPoint("TOPLEFT", 12, -rowGap)
+    hint:SetWidth(572)
+    hint:SetJustifyH("LEFT")
     hint:SetText("Окно «Крафт за концентрацию» использует выбранные реагенты из настроек текущего раздела.")
-    y = y - math.max(24, math.ceil(hint:GetStringHeight()) + 8)
+    local y = -hint:GetStringHeight() - 2 * rowGap
     local qualityOptions = QualityOptions()
     local updates = {}
     local previousRow
@@ -677,7 +1062,7 @@ function ns.ConcCraft.BuildOptions(parent, dropdown, makeSpoilerBar)
         local row = CreateFrame("Frame",nil,parent)
         row:SetWidth(572)
         if previousRow then
-            row:SetPoint("TOPLEFT", previousRow, "BOTTOMLEFT", 0, -8)
+            row:SetPoint("TOPLEFT", previousRow, "BOTTOMLEFT", 0, -rowGap)
         else
             row:SetPoint("TOPLEFT", 12, y)
         end
@@ -770,14 +1155,20 @@ function ns.ConcCraft.BuildOptions(parent, dropdown, makeSpoilerBar)
         end
         updates[#updates + 1] = Update
         Update()
-        y=y-row:GetHeight()-8
+        y = y - row:GetHeight() - rowGap
     end
-    parent:HookScript("OnShow",function() for _,fn in ipairs(updates) do fn() end end)
+    local function UpdateOptions()
+        for _, update in ipairs(updates) do update() end
+    end
+    parent:HookScript("OnShow", UpdateOptions)
     ns.RegisterEvent("TRADE_SKILL_LIST_UPDATE",function()
         if not ns.ProfEnabled() then return end
-        for _,r in ipairs(RECIPES) do Slots(r) end
-        if parent:IsVisible() then for _,fn in ipairs(updates) do fn() end end
+        if parent:IsVisible() then
+            UpdateOptions()
+        else
+            for _, recipe in ipairs(RECIPES) do Slots(recipe) end
+        end
     end)
-    parent:SetHeight(-y + 8)
+    parent:SetHeight(-y + rowGap * 2)
 end
 end
