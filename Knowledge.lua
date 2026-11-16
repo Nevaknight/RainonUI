@@ -554,7 +554,7 @@ local function FillCell(r, col, x, e)
             r.abundant:SetPoint("CENTER", r.frame, "LEFT", center, 0)
             local st = WeeklyStale(e)
             local abDone = e.abundant and not st
-            -- (04.11, Миша) взял задание, но не сдал — жёлтый «?», а не галка
+
             r.abundant:SetTexture(abDone and READY_TEX or ((e.abundantProgress and not st) and WAITING_TEX) or NOTREADY_TEX)
             r.abundant:Show()
         end
@@ -893,7 +893,7 @@ local function OpenCharsMenu(anchor)
             root:CreateButton("Нет персонажей")
             return
         end
-        -- (04.11, Миша) общий порядок: сначала текущий персонаж, дальше по алфавиту — русские ники, потом латиница
+
         local me = UnitGUID and UnitGUID("player")
         table.sort(list, function(a, b)
             if (a.guid == me) ~= (b.guid == me) then return a.guid == me end
@@ -1106,18 +1106,18 @@ local function BuildHelp()
         local _, wx = Cell(8); Small(r.ws, wx, cy)
         y = y - ROWH
     end
-    FakeRow({ me = true, name = "Рейннон", class = "PALADIN",
+    FakeRow({ me = true, name = "Паладин", class = "PALADIN",
         profs = { { icon = "Interface\\Icons\\Trade_Alchemy", conc = "1000", full = true },
                   { icon = "Interface\\Icons\\INV_Misc_Gem_01", conc = "640" } },
         ab = true, quest = { true, false }, treat = { true, true }, kp = { true, false },
         bt = C("40FF40", "2/2"), ws = C("FF5555", "0/1") })
-    FakeRow({ name = "Рейниэль", class = "MAGE",
+    FakeRow({ name = "Маг", class = "MAGE",
         profs = { { icon = "Interface\\Icons\\Trade_Engraving", conc = "880" },
                   { icon = "Interface\\Icons\\Trade_Tailoring", conc = "1000", full = true } },
         ab = nil, quest = { false, true }, treat = { false, false }, kp = { "-", true },
         bt = C("808080", "-"), ws = C("808080", "-") })
     y = y - 4
-    Text("Рейннон — текущий персонаж (синяя полоса). У Рейниэль изобилие не отслеживается (прочерк)," ..
+    Text("Паладин — текущий персонаж (синяя полоса). У мага изобилие не отслеживается (прочерк)," ..
         " у наложения чар нет сфер (прочерк), алхимии нет — зарядов нет («-»).", "GameFontDisableSmall")
 
     -- ---- Столбцы ----

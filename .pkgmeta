@@ -1,13 +1,9 @@
 package-as: RainonUI
 
-# Ручной чейнджлог: CurseForge берёт текст отсюда, а НЕ генерирует из git —
-# так в описании релиза не всплывают автор, e-mail и хэши коммитов.
 manual-changelog:
   filename: Changelog.md
   markup-type: markdown
 
-# Внешние библиотеки: CurseForge подтягивает их из официальных репозиториев
-# при сборке. В нашем GitHub-репозитории их файлы НЕ хранятся.
 externals:
   Libs/LibStub:
     url: https://repos.curseforge.com/wow/libstub/trunk
@@ -33,3 +29,8 @@ ignore:
   - .codex
   - .agents
   - AGENTS.md
+  - .gitattributes
+  - CLAUDE.md
+  - Media/Icons/README.txt
+  - Media/Sounds/README.txt
+  - OrderQueueLocal.lua

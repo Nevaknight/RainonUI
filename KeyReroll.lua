@@ -600,7 +600,7 @@ function KR.ShowWindow(receiver)
         if win.isReceiver then win.PollBtn:Hide() else win.PollBtn:Show() end
     end
     win:Show(); win:Raise()
-    Send("R:")       -- попросить у группы их голоса (было "R" без ":" — не парсилось)
+    Send("R:")
     Broadcast()      -- и отдать свои
     KR.RebuildWindow()
 end
@@ -613,7 +613,7 @@ end
 function KR.StartPoll()
     KR.ShowWindow(false)   -- у ведущего кнопка «Опрос» остаётся
     Send("O:")       -- получатели с включённым модулем откроют окно у себя
-    Send("R:")       -- и попросим их голоса
+    Send("R:")
     Broadcast()      -- отдадим свои
 end
 

@@ -383,12 +383,12 @@ ns.RegisterMessage("RAINON_REAPPLY", function()
     Roster.UpdateMinimap()
 end)
 
--- =========================================================================
--- [ТЕСТОВАЯ ФУНКЦИЯ] Диагностика таланта «Синергичный синтез» — /rssynth.
--- Печатает configID линии Алхимии, ранг узла 107255 и выведенный период
--- восстановления заряда. Нужна, чтобы Миша проверила в игре, что талант
--- читается верно (ID узла/линии не зависят от языка клиента).
--- =========================================================================
+
+
+
+
+
+
 SLASH_RAINONSYNTH1 = "/rssynth"
 SlashCmdList.RAINONSYNTH = function()
     local haveAPI = C_ProfSpecs and C_ProfSpecs.GetConfigIDForSkillLine

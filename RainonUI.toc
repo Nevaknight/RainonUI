@@ -2,7 +2,7 @@
 ## Title: RainonUI
 ## Notes: Скрытие элементов интерфейса и игровые инструменты. Настройки: /rainon
 ## Author: Rainon
-## Version: 1.9.0
+## Version: 1.9.1
 ## IconTexture: Interface\AddOns\RainonUI\Media\logo
 ## SavedVariables: RainonUIDB, RainonUIOrdersDB
 ## OptionalDeps: MythicDungeonTools
@@ -44,9 +44,12 @@ KeystonePoll.lua
 KeyReroll.lua
 TestBar.lua
 DesignLab.lua
+#@do-not-package@
+OrderQueueLocal.lua
+#@end-do-not-package@
 OrderQueue.lua
 ConcCraft.lua
 
-# ЛИЧНОЕ (Миша), НЕ для CurseForge: файла нет ни в git (.gitignore), ни в сборке (.pkgmeta ignore).
-# Строку оставляем: в сборке файла просто нет — игра его пропускает.
+#@do-not-package@
 CharCheck.lua
+#@end-do-not-package@

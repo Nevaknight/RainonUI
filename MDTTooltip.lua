@@ -22,15 +22,15 @@
 -- =========================================================================
 local ADDON_NAME, ns = ...
 
--- -------------------------------------------------------------------------
--- NOTES: our per-mob notes, keyed by npcID -> "text".
--- Matched purely by npcID. Dungeon headers below are COMMENTS ONLY (they
--- don't affect behaviour): they exist so an edit like "add a note to
--- Гробница Королей" is one Ctrl+F on "DUNGEON: <ru name>". Source of entries:
--- the per-dungeon Obsidian page linked from _INDEX/MDT_TOOLTIP.md
--- (Имя | NPC_ID | Текст) — copy NPC_ID + text here. Note text stays RU
--- (shown in-game); code comments are EN.
--- -------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
 local NOTES = {
     -- == DUNGEON: Алтарь Клыков ==
     [261557] = "Сбиваем [Эволюцию] с помощью [Слепящий свет] или [Молот правосудия], таурены могут использовать [Громовая поступь].", -- Верховный мастер эволюции

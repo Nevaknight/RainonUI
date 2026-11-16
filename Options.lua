@@ -1899,9 +1899,9 @@ local function CreateOptionsWindow()
 
         -- === Секция «Недельные маршруты» ===
         Header("Недельные маршруты от @Rupi - |cFF9146FFhttps://www.twitch.tv/rupidk|r", y); y = y - 30
-        -- route — строка !~MDT2~ «Недельного маршрута» (из страницы подземелья
-        -- `_WIKI/MDT_TOOLTIP_DUNGEON/<Название>.md`, таблица «Код для маршрута»).
-        -- Пусто = маршрут ещё не задан (кнопка сообщит об этом).
+
+
+
         local DUNGEONS = {
             { name = "Алтарь Клыков",      tele = 1286812, route = "!~MDT2~VZLLbtNAGIU1vowd33JrwAVeoiqbLKEJEFrR0EoVW8ceB4NjV75Uyc4zNq2Q2PECVeKgLhECqbCAV7Afhj0TiEK88MLnnP8/vz7NzXPLsW3HjN1o1jmIHetwb/j27GHwundqnRwZluV7ZygIHd/bZfz+heHG6NOhGQcB8qJh7LrC8frnNB656AK5YIg8NJk9CkNn7E2oESYv15Fe7I2R7w2sqZ4PQuQiM6J7sdA/p4vCj0tIeChcQYEDDM9KGPRN3/WDJ7a9j2xbThvNVg426krrIohFgYi1JcDMVnqf6jUhU5WOLCfU4zYzXToFiaoJWau505ZWJrsZtEd0kCiyQLS6nOr6nbsLOdPv67v6Pf2BRFhmq3ofzbcKu0jDIGcJYBj6KZUjbTvfJLu0gXknQLEmKZhh6eX5JrnKMqmqyApmWSLJeYeuWrvG3qqlSYU6BguWKKr6/5x/fBYVLmoKeI4ldW1ewVKjV1ZYqESWRAz4S8BwPAvzCgs1E8Qa5C8peFWri5jJKwDUrK61W5A06hLmlmJS4dHGoEH3JjeAQB4mKtnpiJiTkgoYPpGT4V9haLgoitDAs/35kRFH/sFKdbzx7+OKb025XoSmUe8kPnee+qM39A2FycAMkBEh6/Fs8cx0jTCkOdjzjAl6UVyXafGruC2vih/F5z7NuZNXenFdfCu+lGn5vrgtvpdZ+aH4WSbF1z8=" },
             { name = "Арена Шрама Бездны", tele = 1286804, route = "!~MDT2~XVLLbtNAFNWMH3HavOwoqUH8AMsqC5QlbQKEVm0ACbF17HFkcOzKjyjZzR0jISQWfELV0JQFC4RAKizgF8Yfw54xRGnCauaee865M2fm42PHc13PTv1k3jpMPefI3T9x0rvTe/NXB8eW44TBcxLFXhjcwmF/avkpWR7ZaRSRIBmmvl8/XRXP0pFPpsRHQxKQyfx+HHvjYCIaMX2yovTSYEzCYODMzMUgJj6xE+EL9f6ZMIrfX6GsUq1hVqmqUC1Rg/bt0A+jB67bIa6rQG2xAoqySzRACqs3LjZYHVIGdIkyhCWcIQlLxU7OJITXyq7QLncBYSYrdUCSWCqA1h7uqEOWSIDVNVhM6xBZYA1ANeGvgqwDagEyNoSF8wcNJBVUBbQNqevenLAr3Fsg39yjIJh3GMLmbUBi7k4Zs/KOaTJVaYNkiGj+Ma39YsKlzppGG/B/uVQEX5KXOmvoEtNKWyE1QdujmJW0Twg0TCVQBRmjrcx0qCu0SduAVLpHDahdIShhUFWo6FAzWFXbSk+B3SWiwku8kE63khv+LYaWT5KEDAI3vDi20iQ8LFAvGP8+3eo7M7mXkFnSe5qeeQ/D0UvxH2I6sCNiJcQ5mC8e2b4Vx4Kn9gJrQk74eZ7xX/w6f8N/8M99wfMnL0x+zr/xL3mWv+XX/Hv+On/Hf+aUf/0D" },
@@ -2005,7 +2005,7 @@ local function CreateOptionsWindow()
             local valFS = dungeonPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             local function refreshVal() valFS:SetText(getLead() .. " с") end
 
-            -- 1) Штатный слайдер настроек (как на скрине Миши).
+
             local slider
             local ok = pcall(function()
                 assert(MinimalSliderWithSteppersMixin, "no MinimalSliderWithSteppers")
